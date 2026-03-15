@@ -666,135 +666,143 @@ const Payments = () => {
 
       {showModal && (
         <div className="modal-overlay" onClick={() => { setShowModal(false); resetForm(); }}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h2>{selectedPayment ? 'Edit Payment' : 'Add Payment'}</h2>
+          <div className="modal-premium" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-premium-header">
+              <h2>{selectedPayment ? 'Edit Payment' : 'Add Payment'}</h2>
+              <button className="btn-close-sm" onClick={() => { setShowModal(false); resetForm(); }}>×</button>
+            </div>
             <form onSubmit={handleSubmit}>
-              <div className="form-group">
-                <label>Tenant</label>
-                <select
-                  value={formData.tenant}
-                  onChange={(e) => handleTenantChange(e.target.value)}
-                  required
-                >
-                  <option value="">Select Tenant</option>
-                  {tenants.map((tenant) => (
-                    <option key={tenant._id} value={tenant._id}>
-                      {tenant.firstName} {tenant.lastName}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="form-group">
-                <label>House</label>
-                <select
-                  value={formData.house}
-                  onChange={(e) => setFormData({ ...formData, house: e.target.value })}
-                  required
-                >
-                  <option value="">Select House</option>
-                  {houses.map((house) => (
-                    <option key={house._id} value={house._id}>
-                      {house.houseNumber} - {house.apartment?.name || 'N/A'} (KSh {house.rentAmount.toLocaleString()}/month)
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Amount (KSh)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={formData.amount}
-                    onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-                    required
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Payment Date</label>
-                  <input
-                    type="date"
-                    value={formData.paymentDate}
-                    onChange={(e) => setFormData({ ...formData, paymentDate: e.target.value })}
-                    required
-                  />
-                </div>
-              </div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Due Date</label>
-                  <input
-                    type="date"
-                    value={formData.dueDate}
-                    onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })}
-                    required
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Payment Method</label>
+              <div className="modal-premium-body">
+                <div className="form-group-premium">
+                  <label>Tenant</label>
                   <select
-                    value={formData.paymentMethod}
-                    onChange={(e) => setFormData({ ...formData, paymentMethod: e.target.value })}
+                    value={formData.tenant}
+                    onChange={(e) => handleTenantChange(e.target.value)}
+                    required
                   >
-                    <option value="cash">Cash</option>
-                    <option value="check">Check</option>
-                    <option value="bank_transfer">Bank Transfer</option>
-                    <option value="equity_bank">Equity Bank</option>
-                    <option value="mobile_money">Mobile Money</option>
-                    <option value="online">Online</option>
-                    <option value="other">Other</option>
+                    <option value="">Select Tenant</option>
+                    {tenants.map((tenant) => (
+                      <option key={tenant._id} value={tenant._id}>
+                        {tenant.firstName} {tenant.lastName}
+                      </option>
+                    ))}
                   </select>
                 </div>
-              </div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Month</label>
-                  <input
-                    type="text"
-                    value={formData.month}
-                    onChange={(e) => setFormData({ ...formData, month: e.target.value })}
-                    placeholder="01-12"
-                    required
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Year</label>
-                  <input
-                    type="number"
-                    value={formData.year}
-                    onChange={(e) => setFormData({ ...formData, year: e.target.value })}
-                    required
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Status</label>
+                <div className="form-group-premium">
+                  <label>House</label>
                   <select
-                    value={formData.status}
-                    onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                    value={formData.house}
+                    onChange={(e) => setFormData({ ...formData, house: e.target.value })}
+                    required
                   >
-                    <option value="pending">Pending</option>
-                    <option value="paid">Paid</option>
-                    <option value="overdue">Overdue</option>
-                    <option value="partial">Partial</option>
+                    <option value="">Select House</option>
+                    {houses.map((house) => (
+                      <option key={house._id} value={house._id}>
+                        {house.houseNumber} - {house.apartment?.name || 'N/A'} (KSh {house.rentAmount.toLocaleString()}/month)
+                      </option>
+                    ))}
                   </select>
                 </div>
+                <div className="form-row-premium">
+                  <div className="form-group-premium">
+                    <label>Amount (KSh)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={formData.amount}
+                      onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div className="form-group-premium">
+                    <label>Payment Date</label>
+                    <input
+                      type="date"
+                      value={formData.paymentDate}
+                      onChange={(e) => setFormData({ ...formData, paymentDate: e.target.value })}
+                      required
+                    />
+                  </div>
+                </div>
+                <div className="form-row-premium">
+                  <div className="form-group-premium">
+                    <label>Due Date</label>
+                    <input
+                      type="date"
+                      value={formData.dueDate}
+                      onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div className="form-group-premium">
+                    <label>Payment Method</label>
+                    <select
+                      value={formData.paymentMethod}
+                      onChange={(e) => setFormData({ ...formData, paymentMethod: e.target.value })}
+                    >
+                      <option value="cash">Cash</option>
+                      <option value="check">Check</option>
+                      <option value="bank_transfer">Bank Transfer</option>
+                      <option value="equity_bank">Equity Bank</option>
+                      <option value="mobile_money">Mobile Money</option>
+                      <option value="online">Online</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="form-row-premium">
+                  <div className="form-group-premium">
+                    <label>Month</label>
+                    <input
+                      type="text"
+                      value={formData.month}
+                      onChange={(e) => setFormData({ ...formData, month: e.target.value })}
+                      placeholder="01-12"
+                      required
+                    />
+                  </div>
+                  <div className="form-group-premium">
+                    <label>Year</label>
+                    <input
+                      type="number"
+                      value={formData.year}
+                      onChange={(e) => setFormData({ ...formData, year: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div className="form-group-premium">
+                    <label>Status</label>
+                    <select
+                      value={formData.status}
+                      onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                    >
+                      <option value="pending">Pending</option>
+                      <option value="paid">Paid</option>
+                      <option value="overdue">Overdue</option>
+                      <option value="partial">Partial</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="form-group-premium">
+                  <label>Notes</label>
+                  <textarea
+                    value={formData.notes}
+                    onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
+                    rows="3"
+                    placeholder="Additional payment details..."
+                  />
+                </div>
               </div>
-              <div className="form-group">
-                <label>Notes</label>
-                <textarea
-                  value={formData.notes}
-                  onChange={(e) => setFormData({ ...formData, notes: e.target.value })}
-                  rows="3"
-                />
-              </div>
-              <div className="form-actions">
-                <button type="submit" className="btn-primary">Save</button>
+              <div className="modal-premium-footer">
                 <button
                   type="button"
                   className="btn-secondary"
                   onClick={() => { setShowModal(false); resetForm(); }}
                 >
                   Cancel
+                </button>
+                <button type="submit" className="btn-primary" disabled={submitting}>
+                  {submitting ? 'Saving...' : 'Save Payment'}
                 </button>
               </div>
             </form>
@@ -804,116 +812,92 @@ const Payments = () => {
 
       {showReceiveModal && (
         <div className="modal-overlay" onClick={() => { setShowReceiveModal(false); resetReceiveForm(); }}>
-          <div className="modal-content receive-payment-modal" onClick={(e) => e.stopPropagation()}>
-            <h2>💰 Receive Payment</h2>
-            <p style={{ color: 'var(--text-secondary)', marginBottom: '24px' }}>
-              Enter house number to receive and record a payment
-            </p>
-            
-            <div className="house-search-section">
-              <div className="form-group">
-                <label>House Number</label>
-                <div style={{ display: 'flex', gap: '8px' }}>
-                  <input
-                    type="text"
-                    value={houseSearch}
-                    onChange={(e) => setHouseSearch(e.target.value)}
-                    placeholder="e.g., 101, 201, 301"
-                    onKeyPress={(e) => e.key === 'Enter' && handleSearchHouse()}
-                    style={{ flex: 1 }}
-                  />
-                  <button
-                    type="button"
-                    className="btn-primary"
-                    onClick={handleSearchHouse}
-                    disabled={searching}
-                  >
-                    {searching ? 'Searching...' : 'Search'}
-                  </button>
+          <div className="modal-premium" style={{ maxWidth: '500px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-premium-header">
+              <h2>💰 Receive Payment</h2>
+              <button className="btn-close-sm" onClick={() => { setShowReceiveModal(false); resetReceiveForm(); }}>×</button>
+            </div>
+            <div className="modal-premium-body">
+              <p style={{ color: 'var(--text-muted)', marginBottom: '1.5rem', fontSize: '0.9rem' }}>
+                Enter house number to receive and record a payment
+              </p>
+
+              <div className="house-search-section">
+                <div className="form-group-premium">
+                  <label>House Number</label>
+                  <div style={{ display: 'flex', gap: '0.75rem' }}>
+                    <input
+                      type="text"
+                      value={houseSearch}
+                      onChange={(e) => setHouseSearch(e.target.value)}
+                      placeholder="e.g., 101, 201"
+                      onKeyPress={(e) => e.key === 'Enter' && handleSearchHouse()}
+                      style={{ flex: 1 }}
+                    />
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      onClick={handleSearchHouse}
+                      disabled={searching}
+                    >
+                      {searching ? '...' : 'Search'}
+                    </button>
+                  </div>
                 </div>
+
+                {searchedHouse && (
+                  <div className="house-info-card" style={{ background: 'var(--bg-main)', border: '1px solid var(--border-subtle)', borderRadius: '12px', padding: '1rem', marginBottom: '1.5rem' }}>
+                    {searchedHouse.canReceivePayment ? (
+                      <div style={{ fontSize: '0.9rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                        <div><strong>Unit:</strong> {searchedHouse.house.houseNumber} | {searchedHouse.house.apartment?.name}</div>
+                        <div><strong>Tenant:</strong> {searchedHouse.house.tenant?.firstName} {searchedHouse.house.tenant?.lastName}</div>
+                        <div style={{ color: 'var(--primary)', fontWeight: '700' }}><strong>Rent:</strong> KSh {searchedHouse.house.rentAmount.toLocaleString()}</div>
+                      </div>
+                    ) : (
+                      <div style={{ color: 'var(--danger)', padding: '0.5rem', textAlign: 'center', fontSize: '0.9rem', fontWeight: '600' }}>
+                        ⚠️ No tenant assigned to this house.
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
 
-              {searchedHouse && (
-                <div className="house-info-card">
-                  {searchedHouse.canReceivePayment ? (
-                    <>
-                      <div className="info-row">
-                        <strong>House:</strong> {searchedHouse.house.houseNumber}
-                      </div>
-                      <div className="info-row">
-                        <strong>Apartment:</strong> {searchedHouse.house.apartment?.name}
-                      </div>
-                      <div className="info-row">
-                        <strong>Tenant:</strong> {searchedHouse.house.tenant?.firstName} {searchedHouse.house.tenant?.lastName}
-                      </div>
-                      <div className="info-row">
-                        <strong>Monthly Rent:</strong> KSh {searchedHouse.house.rentAmount.toLocaleString()}
-                      </div>
-                      <div className="info-row">
-                        <strong>Email:</strong> {searchedHouse.house.tenant?.email}
-                      </div>
-                      <div className="info-row">
-                        <strong>Phone:</strong> {searchedHouse.house.tenant?.phone}
-                      </div>
-                    </>
-                  ) : (
-                    <div style={{ color: 'var(--danger)', padding: '16px', textAlign: 'center' }}>
-                      ⚠️ This house has no tenant assigned. Please assign a tenant first.
+              {searchedHouse && searchedHouse.canReceivePayment && (
+                <form onSubmit={handleReceivePayment}>
+                  <div className="form-group-premium">
+                    <label>Amount Received (KSh)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={receiveFormData.amount}
+                      onChange={(e) => setReceiveFormData({ ...receiveFormData, amount: e.target.value })}
+                      required
+                      placeholder={searchedHouse.house.rentAmount}
+                    />
+                  </div>
+
+                  <div className="form-row-premium">
+                    <div className="form-group-premium">
+                      <label>Transaction ID</label>
+                      <input
+                        type="text"
+                        value={receiveFormData.transactionId}
+                        onChange={(e) => setReceiveFormData({ ...receiveFormData, transactionId: e.target.value })}
+                        placeholder="TXN123..."
+                      />
                     </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {searchedHouse && searchedHouse.canReceivePayment && (
-              <form onSubmit={handleReceivePayment}>
-                <div className="form-group">
-                  <label>Amount Received (KSh)</label>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={receiveFormData.amount}
-                    onChange={(e) => setReceiveFormData({ ...receiveFormData, amount: e.target.value })}
-                    required
-                    placeholder={searchedHouse.house.rentAmount}
-                  />
-                  <small style={{ color: 'var(--text-secondary)', marginTop: '4px', display: 'block' }}>
-                    Expected: KSh {searchedHouse.house.rentAmount.toLocaleString()}
-                  </small>
-                </div>
-
-                <div className="form-row">
-                  <div className="form-group">
-                    <label>Transaction ID (Optional)</label>
-                    <input
-                      type="text"
-                      value={receiveFormData.transactionId}
-                      onChange={(e) => setReceiveFormData({ ...receiveFormData, transactionId: e.target.value })}
-                      placeholder="e.g., TXN123456"
-                    />
+                    <div className="form-group-premium">
+                      <label>Reference</label>
+                      <input
+                        type="text"
+                        value={receiveFormData.referenceNumber}
+                        onChange={(e) => setReceiveFormData({ ...receiveFormData, referenceNumber: e.target.value })}
+                        placeholder="REF789..."
+                      />
+                    </div>
                   </div>
-                  <div className="form-group">
-                    <label>Reference Number (Optional)</label>
-                    <input
-                      type="text"
-                      value={receiveFormData.referenceNumber}
-                      onChange={(e) => setReceiveFormData({ ...receiveFormData, referenceNumber: e.target.value })}
-                      placeholder="e.g., REF789"
-                    />
-                  </div>
-                </div>
 
-                <div className="form-row">
-                  <div className="form-group">
-                    <label>Received From</label>
-                    <input
-                      type="text"
-                      value={receiveFormData.receivedFrom}
-                      onChange={(e) => setReceiveFormData({ ...receiveFormData, receivedFrom: e.target.value })}
-                      placeholder="Name of payer"
-                    />
-                  </div>
-                  <div className="form-group">
+                  <div className="form-group-premium">
                     <label>Payment Method</label>
                     <select
                       value={receiveFormData.paymentMethod}
@@ -927,112 +911,101 @@ const Payments = () => {
                       <option value="other">Other</option>
                     </select>
                   </div>
-                </div>
 
-                <div className="form-group">
-                  <label>Notes (Optional)</label>
-                  <textarea
-                    value={receiveFormData.notes}
-                    onChange={(e) => setReceiveFormData({ ...receiveFormData, notes: e.target.value })}
-                    rows="3"
-                    placeholder="Additional notes about this payment"
-                  />
-                </div>
+                  <div className="form-group-premium">
+                    <label>Notes</label>
+                    <textarea
+                      value={receiveFormData.notes}
+                      onChange={(e) => setReceiveFormData({ ...receiveFormData, notes: e.target.value })}
+                      rows="2"
+                    />
+                  </div>
 
-                <div className="form-actions">
-                  <button type="submit" className="btn-primary" style={{ background: 'linear-gradient(135deg, var(--success) 0%, #059669 100%)' }}>
-                    ✅ Record Payment
-                  </button>
-                  <button
-                    type="button"
-                    className="btn-secondary"
-                    onClick={() => { setShowReceiveModal(false); resetReceiveForm(); }}
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </form>
-            )}
+                  <div className="modal-premium-footer" style={{ padding: '1rem 0 0', border: 'none', background: 'transparent' }}>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => { setShowReceiveModal(false); resetReceiveForm(); }}
+                    >
+                      Cancel
+                    </button>
+                    <button type="submit" className="btn-primary" disabled={submitting}>
+                      {submitting ? 'Processing...' : '✅ Record Payment'}
+                    </button>
+                  </div>
+                </form>
+              )}
+            </div>
           </div>
         </div>
       )}
 
       {showMpesaModal && (
         <div className="modal-overlay" onClick={() => setShowMpesaModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h2>📱 Pay via M-Pesa STK Push</h2>
-            <p style={{ color: 'var(--text-secondary)', marginBottom: '24px' }}>
-              Enter house number and phone number to receive an M-Pesa prompt
-            </p>
+          <div className="modal-premium" style={{ maxWidth: '450px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-premium-header">
+              <h2 style={{ background: 'linear-gradient(135deg, #00A86B 0%, #008B5A 100%)', WebkitBackgroundClip: 'text' }}>📱 M-Pesa STK Push</h2>
+              <button className="btn-close-sm" onClick={() => setShowMpesaModal(false)}>×</button>
+            </div>
             <form onSubmit={handleMpesaPayment}>
-              <div className="form-group">
-                <label>House Number</label>
-                <input
-                  type="text"
-                  value={mpesaForm.houseNumber}
-                  onChange={(e) => setMpesaForm({ ...mpesaForm, houseNumber: e.target.value })}
-                  placeholder="e.g., 101, 201, 301"
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label>Phone Number</label>
-                <input
-                  type="tel"
-                  value={mpesaForm.phoneNumber}
-                  onChange={(e) => setMpesaForm({ ...mpesaForm, phoneNumber: e.target.value })}
-                  placeholder="254712345678 or 0712345678"
-                  required
-                />
-                <small>Enter the M-Pesa registered phone number</small>
-              </div>
-              <div className="form-group">
-                <label>Amount (KSh)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={mpesaForm.amount}
-                  onChange={(e) => setMpesaForm({ ...mpesaForm, amount: e.target.value })}
-                  placeholder="Enter amount"
-                  required
-                />
-              </div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Month</label>
+              <div className="modal-premium-body">
+                <div className="form-group-premium">
+                  <label>House Number</label>
                   <input
                     type="text"
-                    value={mpesaForm.month}
-                    onChange={(e) => setMpesaForm({ ...mpesaForm, month: e.target.value })}
-                    placeholder="01-12"
+                    value={mpesaForm.houseNumber}
+                    onChange={(e) => setMpesaForm({ ...mpesaForm, houseNumber: e.target.value })}
+                    placeholder="e.g., 101"
                     required
                   />
                 </div>
-                <div className="form-group">
-                  <label>Year</label>
+                <div className="form-group-premium">
+                  <label>Phone Number (M-Pesa)</label>
+                  <input
+                    type="tel"
+                    value={mpesaForm.phoneNumber}
+                    onChange={(e) => setMpesaForm({ ...mpesaForm, phoneNumber: e.target.value })}
+                    placeholder="e.g., 254712345678"
+                    required
+                  />
+                </div>
+                <div className="form-group-premium">
+                  <label>Amount (KSh)</label>
                   <input
                     type="number"
-                    value={mpesaForm.year}
-                    onChange={(e) => setMpesaForm({ ...mpesaForm, year: parseInt(e.target.value) })}
+                    value={mpesaForm.amount}
+                    onChange={(e) => setMpesaForm({ ...mpesaForm, amount: e.target.value })}
+                    placeholder="Enter amount"
                     required
                   />
                 </div>
+                <div className="form-row-premium">
+                  <div className="form-group-premium">
+                    <label>Month</label>
+                    <input
+                      type="text"
+                      value={mpesaForm.month}
+                      onChange={(e) => setMpesaForm({ ...mpesaForm, month: e.target.value })}
+                      required
+                    />
+                  </div>
+                  <div className="form-group-premium">
+                    <label>Year</label>
+                    <input
+                      type="number"
+                      value={mpesaForm.year}
+                      onChange={(e) => setMpesaForm({ ...mpesaForm, year: e.target.value })}
+                      required
+                    />
+                  </div>
+                </div>
               </div>
-              <div className="form-actions">
-                <button 
-                  type="submit" 
-                  className="btn-primary" 
-                  disabled={mpesaLoading}
-                  style={{ background: 'linear-gradient(135deg, #00A86B 0%, #008B5A 100%)' }}
-                >
-                  {mpesaLoading ? 'Processing...' : '📱 Send M-Pesa Prompt'}
-                </button>
-                <button
-                  type="button"
-                  className="btn-secondary"
-                  onClick={() => setShowMpesaModal(false)}
-                >
+              <div className="modal-premium-footer">
+                <button type="button" className="btn-secondary" onClick={() => setShowMpesaModal(false)}>
                   Cancel
+                </button>
+                <button type="submit" className="btn-primary" style={{ background: '#00A86B' }} disabled={mpesaLoading}>
+                  {mpesaLoading ? 'Initiating...' : 'Send STK Push'}
                 </button>
               </div>
             </form>
@@ -1040,24 +1013,32 @@ const Payments = () => {
         </div>
       )}
 
-      {/* Confirmation Modal */}
-      <ConfirmModal
-        isOpen={showDeleteConfirm}
-        onClose={() => { setShowDeleteConfirm(false); setPaymentToDelete(null); }}
-        onConfirm={confirmDelete}
-        title="Delete Payment"
-        message="Are you sure you want to delete this payment? This action cannot be undone."
-        confirmText="Delete"
-        cancelText="Cancel"
-        type="danger"
-      />
+      {showGenerateRentModal && (
+        <div className="modal-overlay" onClick={() => setShowGenerateRentModal(false)}>
+          <div className="modal-premium" style={{ maxWidth: '400px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-premium-header">
+              <h2>📅 Generate Rent</h2>
+              <button className="btn-close-sm" onClick={() => setShowGenerateRentModal(false)}>×</button>
+            </div>
+            <GenerateRentModal 
+              onSubmit={handleGenerateMonthlyRent} 
+              onClose={() => setShowGenerateRentModal(false)}
+              loading={submitting}
+            />
+          </div>
+        </div>
+      )}
 
-      {/* Generate Rent Modal */}
-      <GenerateRentModal
-        isOpen={showGenerateRentModal}
-        onClose={() => setShowGenerateRentModal(false)}
-        onConfirm={handleGenerateMonthlyRent}
-      />
+      {showDeleteConfirm && (
+        <ConfirmModal
+          isOpen={showDeleteConfirm}
+          onClose={() => { setShowDeleteConfirm(false); setPaymentToDelete(null); }}
+          onConfirm={confirmDelete}
+          title="Delete Payment"
+          message="Are you sure you want to delete this payment record? This action cannot be undone."
+          type="danger"
+        />
+      )}
 
       {(submitting || mpesaLoading) && <LoadingSpinner fullScreen />}
     </div>

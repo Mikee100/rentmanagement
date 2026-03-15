@@ -156,12 +156,16 @@ export const reportsAPI = {
     return api.get(`/reports/tenant-ledger/${tenantId}${queryString ? `?${queryString}` : ''}`);
   },
   getOutstandingBalances: (params) => {
-    const queryString = new URLSearchParams(params).toString();
+    const queryString = new URLSearchParams(params || {}).toString();
     return api.get(`/reports/outstanding-balances${queryString ? `?${queryString}` : ''}`);
   },
   getRevenueByApartment: (params) => {
-    const queryString = new URLSearchParams(params).toString();
+    const queryString = new URLSearchParams(params || {}).toString();
     return api.get(`/reports/revenue-by-apartment${queryString ? `?${queryString}` : ''}`);
+  },
+  getMonthlyApartmentUnits: (params) => {
+    const queryString = new URLSearchParams(params || {}).toString();
+    return api.get(`/reports/monthly-apartment-units${queryString ? `?${queryString}` : ''}`);
   },
 };
 

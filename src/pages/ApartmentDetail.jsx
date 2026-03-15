@@ -1,10 +1,42 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { apartmentsAPI, housesAPI, tenantsAPI } from '../services/api';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+  Building2, MapPin, Users, Home, Settings,
+  TrendingUp, CreditCard, AlertCircle, Plus,
+  ChevronLeft, Edit3, Trash2, UserMinus,
+  UserPlus, Info, Wrench, Receipt, DollarSign
+} from 'lucide-react';
+import { apartmentsAPI, housesAPI, tenantsAPI, paymentsAPI, maintenanceAPI, expensesAPI } from '../services/api';
 import { useToast } from '../components/Toast';
 import ConfirmModal from '../components/ConfirmModal';
 import LoadingSpinner from '../components/LoadingSpinner';
+import OccupancyChart from '../components/charts/OccupancyChart';
 import './ApartmentDetail.css';
+
+const StatCard = ({ icon: Icon, label, value, subtitle, trend, colorClass }) => (
+  <motion.div
+    initial={{ opacity: 0, y: 20 }}
+    animate={{ opacity: 1, y: 0 }}
+    className={`premium-stat-card ${colorClass}`}
+  >
+    <div className="stat-card-header">
+      <div className="stat-icon-wrapper">
+        <Icon size={20} />
+      </div>
+      {trend && (
+        <span className={`stat-trend ${trend > 0 ? 'up' : 'down'}`}>
+          {trend > 0 ? '↑' : '↓'} {Math.abs(trend)}%
+        </span>
+      )}
+    </div>
+    <div className="stat-card-body">
+      <span className="stat-label">{label}</span>
+      <h3 className="stat-value">{value}</h3>
+      <p className="stat-subtitle">{subtitle}</p>
+    </div>
+  </motion.div>
+);
 
 const ApartmentDetail = () => {
   const { id } = useParams();
@@ -13,10 +45,15 @@ const ApartmentDetail = () => {
   const [apartment, setApartment] = useState(null);
   const [houses, setHouses] = useState([]);
   const [tenants, setTenants] = useState([]);
+  const [payments, setPayments] = useState([]);
+  const [maintenanceRequests, setMaintenanceRequests] = useState([]);
+  const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [unitFilter, setUnitFilter] = useState('all');
+  const [unitSearch, setUnitSearch] = useState('');
+  const [activeTab, setActiveTab] = useState('overview');
   const [showHouseModal, setShowHouseModal] = useState(false);
-  const [showAssignModal, setShowAssignModal] = useState(false);
   const [showEditApartmentModal, setShowEditApartmentModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showRemoveConfirm, setShowRemoveConfirm] = useState(false);
@@ -47,10 +84,13 @@ const ApartmentDetail = () => {
 
   const fetchData = async () => {
     try {
-      const [apartmentRes, housesRes, tenantsRes] = await Promise.all([
+      const [apartmentRes, housesRes, tenantsRes, paymentsRes, maintenanceRes, expensesRes] = await Promise.all([
         apartmentsAPI.getById(id),
         housesAPI.getByApartment(id),
         tenantsAPI.getAll(),
+        paymentsAPI.getByApartment(id).catch(() => ({ data: [] })),
+        maintenanceAPI.getAll({ apartment: id }).catch(() => ({ data: [] })),
+        expensesAPI.getByApartment(id).catch(() => ({ data: [] })),
       ]);
       setApartment(apartmentRes.data.apartment);
       setHouses(housesRes.data);
@@ -58,6 +98,9 @@ const ApartmentDetail = () => {
         const status = (t.status || '').toLowerCase();
         return status === 'active';
       }));
+      setPayments(paymentsRes.data || []);
+      setMaintenanceRequests(maintenanceRes.data || []);
+      setExpenses(expensesRes.data || []);
       setLoading(false);
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -65,18 +108,6 @@ const ApartmentDetail = () => {
     }
   };
 
-  const fetchTenants = async () => {
-    try {
-      const tenantsRes = await tenantsAPI.getAll();
-      const availableTenants = tenantsRes.data.filter((t) => {
-        const status = (t.status || '').toLowerCase();
-        return status === 'active';
-      });
-      setTenants(availableTenants);
-    } catch (error) {
-      console.error('Error fetching tenants:', error);
-    }
-  };
 
   const handleHouseSubmit = async (e) => {
     e.preventDefault();
@@ -144,22 +175,6 @@ const ApartmentDetail = () => {
     }
   };
 
-  const handleAssignTenant = async (houseId, tenantId) => {
-    setSubmitting(true);
-    try {
-      await housesAPI.assignTenant(houseId, tenantId);
-      toast.success('Tenant assigned successfully');
-      setShowAssignModal(false);
-      setSelectedHouse(null);
-      fetchData();
-    } catch (error) {
-      console.error('Error assigning tenant:', error);
-      const errorMessage = error.response?.data?.message || 'Error assigning tenant. Please try again.';
-      toast.error(errorMessage);
-    } finally {
-      setSubmitting(false);
-    }
-  };
 
   const handleRemoveTenant = (houseId) => {
     setHouseToRemove(houseId);
@@ -235,169 +250,469 @@ const ApartmentDetail = () => {
     }
   };
 
-  if (loading) {
-    return <LoadingSpinner text="Loading apartment details..." fullScreen />;
-  }
+  // Calculate financial metrics
+  const calculateFinancials = () => {
+    const currentMonth = new Date().getMonth() + 1;
+    const currentYear = new Date().getFullYear();
 
-  if (!apartment) {
-    return <div className="error">Apartment not found</div>;
-  }
+    const monthlyPayments = payments.filter(p => {
+      const paymentDate = new Date(p.paymentDate);
+      return paymentDate.getMonth() + 1 === currentMonth && paymentDate.getFullYear() === currentYear;
+    });
+
+    const monthlyRevenue = monthlyPayments.reduce((sum, p) => sum + (p.paidAmount || p.amount || 0), 0);
+    const outstandingPayments = payments.filter(p => p.status === 'pending' || p.status === 'overdue' || p.status === 'partial');
+    const outstandingAmount = outstandingPayments.reduce((sum, p) => sum + (p.deficit || p.expectedAmount - (p.paidAmount || 0)), 0);
+
+    const totalExpected = houses.filter(h => h.status === 'occupied').reduce((sum, h) => sum + h.rentAmount, 0);
+    const collectionRate = totalExpected > 0 ? ((monthlyRevenue / totalExpected) * 100).toFixed(1) : 0;
+
+    const avgRent = houses.length > 0 ? houses.reduce((sum, h) => sum + h.rentAmount, 0) / houses.length : 0;
+
+    const ytdPayments = payments.filter(p => {
+      const paymentDate = new Date(p.paymentDate);
+      return paymentDate.getFullYear() === currentYear;
+    });
+    const ytdRevenue = ytdPayments.reduce((sum, p) => sum + (p.paidAmount || p.amount || 0), 0);
+
+    const lateFees = monthlyPayments.reduce((sum, p) => sum + (p.lateFee || 0), 0);
+
+    return {
+      monthlyRevenue,
+      outstandingAmount,
+      collectionRate,
+      avgRent,
+      ytdRevenue,
+      lateFees
+    };
+  };
+
+  const financials = useMemo(() => calculateFinancials(), [payments, houses]);
+
+  // Filter units logic
+  const filteredHouses = useMemo(() => {
+    return houses.filter(house => {
+      const matchesFilter = unitFilter === 'all' || house.status === unitFilter;
+      const matchesSearch = !unitSearch ||
+        house.houseNumber.toLowerCase().includes(unitSearch.toLowerCase()) ||
+        (house.tenant && `${house.tenant.firstName} ${house.tenant.lastName}`.toLowerCase().includes(unitSearch.toLowerCase()));
+      return matchesFilter && matchesSearch;
+    });
+  }, [houses, unitFilter, unitSearch]);
+  const occupiedCount = houses.filter(h => h.status === 'occupied').length;
+  const availableCount = houses.filter(h => h.status === 'available').length;
+  const maintenanceCount = houses.filter(h => h.status === 'maintenance').length;
+  const recentPayments = payments.slice(0, 8);
+  const activeMaintenance = maintenanceRequests.filter(m => m.status !== 'completed' && m.status !== 'cancelled').slice(0, 5);
+
+  if (loading) return <LoadingSpinner text="Loading apartment details..." fullScreen />;
+  if (!apartment) return <div className="error-container">Apartment not found</div>;
 
   return (
-    <div className="apartment-detail-page">
-      {/* Compact Header */}
-      <div className="apartment-header-compact">
-        <button className="btn-back-compact" onClick={() => navigate('/apartments')}>
-          ←
-        </button>
-        <div className="apartment-info-compact">
-          <div>
-            <h1>{apartment.name}</h1>
-            <p className="apartment-address-compact">{apartment.address}</p>
-          </div>
+    <div className="apartment-premium-view">
+      {/* Hero Section */}
+      <header className="apartment-hero">
+        <div className="hero-top-nav">
+          <motion.button
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="back-btn-minimal"
+            onClick={() => navigate('/apartments')}
+          >
+            <ChevronLeft size={20} /> Back to Buildings
+          </motion.button>
+          <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="hero-actions"
+          >
+            <button className="action-btn-glass" onClick={handleEditApartment}>
+              <Edit3 size={16} /> Edit Building
+            </button>
+            <button className="action-btn-primary" onClick={() => { resetHouseForm(); setShowHouseModal(true); }}>
+              <Plus size={16} /> Add Unit
+            </button>
+          </motion.div>
         </div>
-        <div className="header-actions-compact">
-          <button className="btn-edit-compact" onClick={handleEditApartment}>
-            Edit
-          </button>
-          <button className="btn-add-compact" onClick={() => { resetHouseForm(); setShowHouseModal(true); }}>
-            + Add Unit
-          </button>
-        </div>
-      </div>
 
-      {/* Compact Stats Bar */}
-      <div className="stats-bar-compact">
-        <div className="stat-compact">
-          <span className="stat-label-compact">Total</span>
-          <span className="stat-value-compact">{apartment.totalHouses || houses.length}</span>
-        </div>
-        <div className="stat-compact">
-          <span className="stat-label-compact">Occupied</span>
-          <span className="stat-value-compact occupied">{houses.filter((h) => h.status === 'occupied').length}</span>
-        </div>
-        <div className="stat-compact">
-          <span className="stat-label-compact">Available</span>
-          <span className="stat-value-compact available">{houses.filter((h) => h.status === 'available').length}</span>
-        </div>
-        <div className="stat-compact">
-          <span className="stat-label-compact">Maintenance</span>
-          <span className="stat-value-compact maintenance">{houses.filter((h) => h.status === 'maintenance').length}</span>
-        </div>
-      </div>
+        <div className="hero-content">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.1 }}
+            className="building-identity"
+          >
+            <div className="building-logo">
+              <Building2 size={32} color="white" />
+            </div>
+            <div className="building-text">
+              <h1 className="building-name">{apartment.name}</h1>
+              <p className="building-address">
+                <MapPin size={14} /> {apartment.address}
+              </p>
+            </div>
+          </motion.div>
 
-      {/* Units Section */}
-      <div className="units-section">
-        <div className="section-header-compact">
-          <h2>Units ({houses.length})</h2>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: 0.2 }}
+            className="building-quick-stats"
+          >
+            <div className="quick-stat-item">
+              <span className="qs-label">Occupancy</span>
+              <span className="qs-value">{houses.length > 0 ? Math.round((occupiedCount / houses.length) * 100) : 0}%</span>
+            </div>
+            <div className="divider-v" />
+            <div className="quick-stat-item">
+              <span className="qs-label">Units</span>
+              <span className="qs-value">{houses.length}</span>
+            </div>
+            <div className="divider-v" />
+            <div className="quick-stat-item">
+              <span className="qs-label">Manager</span>
+              <span className="qs-value">{apartment.manager?.name || 'Not Assigned'}</span>
+            </div>
+          </motion.div>
         </div>
-        <div className="units-grid">
-          {houses
-            .sort((a, b) => a.houseNumber.localeCompare(b.houseNumber))
-            .map((house) => (
-              <div key={house._id} className="unit-card">
-                <div className="unit-header-compact">
-                  <div className="unit-number-compact">Unit {house.houseNumber}</div>
-                  <span className="status-badge-compact" style={{ backgroundColor: getStatusColor(house.status) }}>
-                    {house.status}
-                  </span>
+      </header>
+
+      {/* Main Content Area */}
+      <main className="apartment-main-grid">
+        {/* Navigation Tabs */}
+        <nav className="apartment-nav-pills">
+          {[
+            { id: 'overview', label: 'Dashboard', icon: TrendingUp },
+            { id: 'units', label: `Units (${houses.length})`, icon: Home },
+            { id: 'payments', label: 'Financials', icon: CreditCard },
+            { id: 'maintenance', label: 'Maintenance', icon: Wrench },
+          ].map(tab => (
+            <button
+              key={tab.id}
+              className={`nav-pill ${activeTab === tab.id ? 'active' : ''}`}
+              onClick={() => setActiveTab(tab.id)}
+            >
+              <tab.icon size={16} />
+              {tab.label}
+            </button>
+          ))}
+        </nav>
+
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={activeTab}
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -10 }}
+            transition={{ duration: 0.2 }}
+            className="tab-content-wrapper"
+          >
+            {activeTab === 'overview' && (
+              <div className="overview-tab-grid">
+                {/* Building Analytics Widgets */}
+                <div className="analytics-widgets">
+                  <StatCard
+                    icon={DollarSign}
+                    label="Monthly Revenue"
+                    value={`KSh ${financials.monthlyRevenue.toLocaleString()}`}
+                    subtitle="Collected this month"
+                    colorClass="indigo"
+                  />
+                  <StatCard
+                    icon={AlertCircle}
+                    label="Outstanding"
+                    value={`KSh ${financials.outstandingAmount.toLocaleString()}`}
+                    subtitle="Pending collections"
+                    colorClass="rose"
+                  />
+                  <StatCard
+                    icon={TrendingUp}
+                    label="Collection Rate"
+                    value={`${financials.collectionRate}%`}
+                    subtitle="Target: 95%"
+                    trend={2.4}
+                    colorClass="emerald"
+                  />
+                  <StatCard
+                    icon={Receipt}
+                    label="Avg Rent/Unit"
+                    value={`KSh ${Math.round(financials.avgRent).toLocaleString()}`}
+                    subtitle="Current average"
+                    colorClass="amber"
+                  />
                 </div>
-                <div className="unit-details-compact">
-                  <div className="unit-detail-row">
-                    <span className="detail-label-compact">Rent</span>
-                    <span className="detail-value-compact">KSh {house.rentAmount.toLocaleString()}/mo</span>
-                  </div>
-                  {house.tenant && (
-                    <div className="unit-detail-row">
-                      <span className="detail-label-compact">Tenant</span>
-                      <span className="detail-value-compact tenant-name">{house.tenant.firstName} {house.tenant.lastName}</span>
+
+                <div className="middle-layout">
+                  <div className="chart-wrapper-premium card-premium">
+                    <div className="card-header-minimal">
+                      <h3>Occupancy Status</h3>
                     </div>
-                  )}
-                </div>
-                <div className="unit-actions-compact">
-                  <button className="btn-action-small" onClick={() => handleEditHouse(house)}>
-                    Edit
-                  </button>
-                  {house.tenant ? (
-                    <button className="btn-action-small btn-remove-small" onClick={() => handleRemoveTenant(house._id)}>
-                      Remove
-                    </button>
-                  ) : (
-                    <button className="btn-action-small btn-assign-small" onClick={async () => {
-                      setSelectedHouse(house);
-                      await fetchTenants();
-                      setShowAssignModal(true);
-                    }}>
-                      Assign
-                    </button>
-                  )}
-                  <button className="btn-action-small btn-delete-small" onClick={() => handleDeleteHouse(house._id)}>
-                    Delete
-                  </button>
+                    <OccupancyChart
+                      occupied={occupiedCount}
+                      available={availableCount}
+                      maintenance={maintenanceCount}
+                    />
+                  </div>
+
+                  <div className="recent-activity card-premium">
+                    <div className="card-header-minimal">
+                      <h3>Recent Payments</h3>
+                      <button className="text-btn" onClick={() => setActiveTab('payments')}>View All</button>
+                    </div>
+                    <div className="activity-list">
+                      {recentPayments.map(p => (
+                        <div key={p._id} className="activity-item">
+                          <div className={`activity-icon-sm ${p.status}`}>
+                            <CreditCard size={14} />
+                          </div>
+                          <div className="activity-info">
+                            <span className="activity-title">{p.tenant?.firstName} {p.tenant?.lastName}</span>
+                            <span className="activity-sub">Unit {p.house?.houseNumber} • {new Date(p.paymentDate).toLocaleDateString()}</span>
+                          </div>
+                          <div className="activity-amount">
+                            +KSh {p.amount?.toLocaleString()}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               </div>
-            ))}
-        </div>
-      </div>
+            )}
+
+            {activeTab === 'units' && (
+              <div className="units-tab-view">
+                <div className="units-toolbar">
+                  <div className="search-group">
+                    <Home size={18} className="search-icon" />
+                    <input
+                      type="text"
+                      placeholder="Search units, tenants..."
+                      value={unitSearch}
+                      onChange={(e) => setUnitSearch(e.target.value)}
+                    />
+                  </div>
+                  <div className="filter-group">
+                    {['all', 'available', 'occupied', 'maintenance'].map(status => (
+                      <button
+                        key={status}
+                        className={`filter-btn ${unitFilter === status ? 'active' : ''}`}
+                        onClick={() => setUnitFilter(status)}
+                      >
+                        {status.charAt(0).toUpperCase() + status.slice(1)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="units-premium-grid">
+                  {filteredHouses.sort((a, b) => a.houseNumber.localeCompare(b.houseNumber)).map(house => {
+                    const housePayments = payments.filter(p => p.house?._id === house._id || p.house === house._id);
+                    const outstanding = housePayments
+                      .filter(p => ['pending', 'overdue', 'partial'].includes(p.status))
+                      .reduce((sum, p) => sum + (p.deficit || 0), 0);
+
+                    return (
+                      <motion.div
+                        layout
+                        key={house._id}
+                        className={`unit-premium-card ${house.status}`}
+                      >
+                        <div className="unit-card-main">
+                          <div className="unit-card-head">
+                            <span className="unit-badge">Unit {house.houseNumber}</span>
+                            <div className={`status-dot ${house.status}`} />
+                          </div>
+
+                          <div className="unit-occupant">
+                            {house.tenant ? (
+                              <div className="occupant-info">
+                                <div className="occupant-avatar">
+                                  {house.tenant.firstName[0]}{house.tenant.lastName[0]}
+                                </div>
+                                <div className="occupant-text">
+                                  <span className="occ-name">{house.tenant.firstName} {house.tenant.lastName}</span>
+                                  <span className="occ-sub">Active Tenant</span>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="occupant-empty">
+                                <Users size={20} />
+                                <span>No active tenant</span>
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="unit-metrics">
+                            <div className="u-metric">
+                              <span className="um-label">Rent</span>
+                              <span className="um-value">KSh {house.rentAmount.toLocaleString()}</span>
+                            </div>
+                            {outstanding > 0 && (
+                              <div className="u-metric danger">
+                                <span className="um-label">Arrears</span>
+                                <span className="um-value">KSh {outstanding.toLocaleString()}</span>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+
+                        <div className="unit-card-actions">
+                          <button className="u-action" onClick={() => handleEditHouse(house)} title="Settings">
+                            <Settings size={16} />
+                          </button>
+                          {house.tenant ? (
+                            <button className="u-action danger" onClick={() => handleRemoveTenant(house._id)} title="Evict/Remove">
+                              <UserMinus size={16} />
+                            </button>
+                          ) : (
+                            <button className="u-action success" onClick={() => navigate(`/assign-tenant/${house._id}?apartment=${id}`)} title="Assign">
+                              <UserPlus size={16} />
+                            </button>
+                          )}
+                          <button className="u-action info" onClick={() => navigate(`/units/${house._id}`)} title="History">
+                            <Info size={16} />
+                          </button>
+                          <button className="u-action danger" onClick={() => handleDeleteHouse(house._id)} title="Delete">
+                            <Trash2 size={16} />
+                          </button>
+                        </div>
+                      </motion.div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'payments' && (
+              <div className="payments-tab-view card-premium">
+                <div className="payments-table-container">
+                  <table className="premium-table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Tenant</th>
+                        <th>Unit</th>
+                        <th>Amount</th>
+                        <th>Status</th>
+                        <th>Method</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {payments.slice(0, 20).map(p => (
+                        <tr key={p._id}>
+                          <td>{new Date(p.paymentDate).toLocaleDateString()}</td>
+                          <td>
+                            <div className="table-tenant-cell">
+                              <div className="mini-avatar">{p.tenant?.firstName?.[0]}</div>
+                              {p.tenant?.firstName} {p.tenant?.lastName}
+                            </div>
+                          </td>
+                          <td><span className="unit-tag">{p.house?.houseNumber}</span></td>
+                          <td><span className="amount-cell">KSh {p.amount?.toLocaleString()}</span></td>
+                          <td><span className={`badge-status ${p.status}`}>{p.status}</span></td>
+                          <td>{p.paymentMethod || 'MPesa'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'maintenance' && (
+              <div className="maintenance-tab-view">
+                <div className="maintenance-grid">
+                  {maintenanceRequests.map(m => (
+                    <div key={m._id} className="maintenance-card-premium card-premium">
+                      <div className="m-card-header">
+                        <div className={`m-priority-indicator ${m.priority}`} />
+                        <span className="m-category">{m.category}</span>
+                        <span className={`m-status-badge ${m.status}`}>{m.status}</span>
+                      </div>
+                      <h4 className="m-title">{m.title}</h4>
+                      <p className="m-desc">{m.description}</p>
+                      <div className="m-footer">
+                        <span className="m-unit"><Home size={12} /> Unit {m.house?.houseNumber}</span>
+                        <span className="m-date">{new Date(m.requestedDate).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </motion.div>
+        </AnimatePresence>
+      </main>
 
       {/* Modals */}
       {showHouseModal && (
         <div className="modal-overlay" onClick={() => { setShowHouseModal(false); resetHouseForm(); }}>
-          <div className="modal-content-compact" onClick={(e) => e.stopPropagation()}>
-            <h2>{selectedHouse ? 'Edit Unit' : 'Add Unit'}</h2>
+          <div className="modal-premium" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-premium-header">
+              <h2>{selectedHouse ? 'Edit Unit' : 'Add Unit'}</h2>
+              <button className="btn-close-sm" onClick={() => { setShowHouseModal(false); resetHouseForm(); }}>×</button>
+            </div>
             <form onSubmit={handleHouseSubmit}>
-              <div className="form-group">
-                <label>Unit Number</label>
-                <input
-                  type="text"
-                  value={houseFormData.houseNumber}
-                  onChange={(e) => setHouseFormData({ ...houseFormData, houseNumber: e.target.value })}
-                  required
-                  placeholder="e.g., 101, 102"
-                />
+              <div className="modal-premium-body">
+                <div className="form-row-premium">
+                  <div className="form-group-premium">
+                    <label>Unit Number</label>
+                    <input
+                      type="text"
+                      value={houseFormData.houseNumber}
+                      onChange={(e) => setHouseFormData({ ...houseFormData, houseNumber: e.target.value })}
+                      required
+                      placeholder="e.g., 101, 102"
+                    />
+                  </div>
+                  <div className="form-group-premium">
+                    <label>Rent Amount (KSh)</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={houseFormData.rentAmount}
+                      onChange={(e) => setHouseFormData({ ...houseFormData, rentAmount: e.target.value })}
+                      required
+                    />
+                  </div>
+                </div>
+                <div className="form-group-premium">
+                  <label>Status</label>
+                  <select
+                    value={houseFormData.status}
+                    onChange={(e) => setHouseFormData({ ...houseFormData, status: e.target.value })}
+                  >
+                    <option value="available">Available</option>
+                    <option value="occupied">Occupied</option>
+                    <option value="maintenance">Maintenance</option>
+                  </select>
+                </div>
+                <div className="form-group-premium">
+                  <label>Description</label>
+                  <textarea
+                    value={houseFormData.description}
+                    onChange={(e) => setHouseFormData({ ...houseFormData, description: e.target.value })}
+                    rows="3"
+                    placeholder="Brief description of the unit..."
+                  />
+                </div>
+                <div className="form-group-premium">
+                  <label>Amenities (comma-separated)</label>
+                  <input
+                    type="text"
+                    value={houseFormData.amenities}
+                    onChange={(e) => setHouseFormData({ ...houseFormData, amenities: e.target.value })}
+                    placeholder="Parking, AC, Balcony"
+                  />
+                </div>
               </div>
-              <div className="form-group">
-                <label>Rent Amount (KSh)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={houseFormData.rentAmount}
-                  onChange={(e) => setHouseFormData({ ...houseFormData, rentAmount: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label>Status</label>
-                <select
-                  value={houseFormData.status}
-                  onChange={(e) => setHouseFormData({ ...houseFormData, status: e.target.value })}
-                >
-                  <option value="available">Available</option>
-                  <option value="occupied">Occupied</option>
-                  <option value="maintenance">Maintenance</option>
-                </select>
-              </div>
-              <div className="form-group">
-                <label>Description</label>
-                <textarea
-                  value={houseFormData.description}
-                  onChange={(e) => setHouseFormData({ ...houseFormData, description: e.target.value })}
-                  rows="3"
-                />
-              </div>
-              <div className="form-group">
-                <label>Amenities (comma-separated)</label>
-                <input
-                  type="text"
-                  value={houseFormData.amenities}
-                  onChange={(e) => setHouseFormData({ ...houseFormData, amenities: e.target.value })}
-                  placeholder="Parking, AC, Balcony"
-                />
-              </div>
-              <div className="form-actions">
-                <button type="submit" className="btn-primary">Save</button>
+              <div className="modal-premium-footer">
                 <button type="button" className="btn-secondary" onClick={() => { setShowHouseModal(false); resetHouseForm(); }}>
                   Cancel
+                </button>
+                <button type="submit" className="btn-primary" disabled={submitting}>
+                  {submitting ? 'Saving...' : 'Save Unit'}
                 </button>
               </div>
             </form>
@@ -405,117 +720,95 @@ const ApartmentDetail = () => {
         </div>
       )}
 
-      {showAssignModal && selectedHouse && (
-        <div className="modal-overlay" onClick={() => { setShowAssignModal(false); setSelectedHouse(null); }}>
-          <div className="modal-content-compact" onClick={(e) => e.stopPropagation()}>
-            <h2>Assign Tenant to Unit {selectedHouse.houseNumber}</h2>
-            {tenants.length === 0 ? (
-              <div>
-                <p style={{ marginBottom: '16px', color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-                  No available tenants. Please create a tenant first.
-                </p>
-                <button className="btn-primary" onClick={() => { setShowAssignModal(false); setSelectedHouse(null); navigate('/tenants'); }}>
-                  Go to Tenants
-                </button>
-              </div>
-            ) : (
-              <div className="tenant-list-compact">
-                {tenants.map((tenant) => (
-                  <div key={tenant._id} className="tenant-item-compact" onClick={() => handleAssignTenant(selectedHouse._id, tenant._id)}>
-                    <div className="tenant-name-compact">{tenant.firstName} {tenant.lastName}</div>
-                    <div className="tenant-contact-compact">{tenant.email} • {tenant.phone}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-            <div className="form-actions">
-              <button className="btn-secondary" onClick={() => { setShowAssignModal(false); setSelectedHouse(null); }}>
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {showEditApartmentModal && (
         <div className="modal-overlay" onClick={() => setShowEditApartmentModal(false)}>
-          <div className="modal-content-compact" onClick={(e) => e.stopPropagation()}>
-            <h2>Edit Apartment</h2>
+          <div className="modal-premium" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-premium-header">
+              <h2>Edit Apartment</h2>
+              <button className="btn-close-sm" onClick={() => setShowEditApartmentModal(false)}>×</button>
+            </div>
             <form onSubmit={handleUpdateApartment}>
-              <div className="form-group">
-                <label>Apartment Name *</label>
-                <input
-                  type="text"
-                  value={apartmentFormData.name}
-                  onChange={(e) => setApartmentFormData({ ...apartmentFormData, name: e.target.value })}
-                  required
-                  placeholder="e.g., Sunset Apartments"
-                />
-              </div>
-              <div className="form-group">
-                <label>Address *</label>
-                <input
-                  type="text"
-                  value={apartmentFormData.address}
-                  onChange={(e) => setApartmentFormData({ ...apartmentFormData, address: e.target.value })}
-                  required
-                  placeholder="e.g., 123 Main Street, City"
-                />
-              </div>
-              <div className="form-group">
-                <label>Description</label>
-                <textarea
-                  value={apartmentFormData.description}
-                  onChange={(e) => setApartmentFormData({ ...apartmentFormData, description: e.target.value })}
-                  rows="4"
-                  placeholder="Apartment description and features..."
-                />
-              </div>
-              <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid var(--border)' }}>
-                <h3 style={{ marginBottom: '12px', fontSize: '1rem', color: 'var(--text-primary)', fontWeight: '600' }}>Manager Information</h3>
-                <div className="form-group">
-                  <label>Manager Name</label>
-                  <input
-                    type="text"
-                    value={apartmentFormData.manager?.name || ''}
-                    onChange={(e) => setApartmentFormData({
-                      ...apartmentFormData,
-                      manager: { ...apartmentFormData.manager, name: e.target.value }
-                    })}
-                    placeholder="Manager full name"
+              <div className="modal-premium-body">
+                <div className="form-row-premium">
+                  <div className="form-group-premium">
+                    <label>Apartment Name *</label>
+                    <input
+                      type="text"
+                      value={apartmentFormData.name}
+                      onChange={(e) => setApartmentFormData({ ...apartmentFormData, name: e.target.value })}
+                      required
+                      placeholder="e.g., Sunset Apartments"
+                    />
+                  </div>
+                  <div className="form-group-premium">
+                    <label>Address *</label>
+                    <input
+                      type="text"
+                      value={apartmentFormData.address}
+                      onChange={(e) => setApartmentFormData({ ...apartmentFormData, address: e.target.value })}
+                      required
+                      placeholder="e.g., 123 Main Street, City"
+                    />
+                  </div>
+                </div>
+                <div className="form-group-premium">
+                  <label>Description</label>
+                  <textarea
+                    value={apartmentFormData.description}
+                    onChange={(e) => setApartmentFormData({ ...apartmentFormData, description: e.target.value })}
+                    rows="4"
+                    placeholder="Apartment description and features..."
                   />
                 </div>
-                <div className="form-row">
-                  <div className="form-group">
-                    <label>Phone</label>
+                
+                <div style={{ marginTop: '1rem', marginBottom: '1.5rem', paddingTop: '1.5rem', borderTop: '1.5px solid var(--border-subtle)' }}>
+                  <h3 style={{ marginBottom: '1.25rem', fontSize: '1.1rem', color: 'var(--text-main)', fontWeight: '700' }}>Manager Information</h3>
+                  <div className="form-group-premium">
+                    <label>Manager Name</label>
                     <input
-                      type="tel"
-                      value={apartmentFormData.manager?.phone || ''}
+                      type="text"
+                      value={apartmentFormData.manager?.name || ''}
                       onChange={(e) => setApartmentFormData({
                         ...apartmentFormData,
-                        manager: { ...apartmentFormData.manager, phone: e.target.value }
+                        manager: { ...apartmentFormData.manager, name: e.target.value }
                       })}
-                      placeholder="+1234567890"
+                      placeholder="Manager full name"
                     />
                   </div>
-                  <div className="form-group">
-                    <label>Email</label>
-                    <input
-                      type="email"
-                      value={apartmentFormData.manager?.email || ''}
-                      onChange={(e) => setApartmentFormData({
-                        ...apartmentFormData,
-                        manager: { ...apartmentFormData.manager, email: e.target.value }
-                      })}
-                      placeholder="manager@example.com"
-                    />
+                  <div className="form-row-premium">
+                    <div className="form-group-premium">
+                      <label>Phone</label>
+                      <input
+                        type="tel"
+                        value={apartmentFormData.manager?.phone || ''}
+                        onChange={(e) => setApartmentFormData({
+                          ...apartmentFormData,
+                          manager: { ...apartmentFormData.manager, phone: e.target.value }
+                        })}
+                        placeholder="+1234567890"
+                      />
+                    </div>
+                    <div className="form-group-premium">
+                      <label>Email</label>
+                      <input
+                        type="email"
+                        value={apartmentFormData.manager?.email || ''}
+                        onChange={(e) => setApartmentFormData({
+                          ...apartmentFormData,
+                          manager: { ...apartmentFormData.manager, email: e.target.value }
+                        })}
+                        placeholder="manager@example.com"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
-              <div className="form-actions">
-                <button type="submit" className="btn-primary">Save Changes</button>
+              <div className="modal-premium-footer">
                 <button type="button" className="btn-secondary" onClick={() => setShowEditApartmentModal(false)}>
                   Cancel
+                </button>
+                <button type="submit" className="btn-primary" disabled={submitting}>
+                  {submitting ? 'Updating...' : 'Save Changes'}
                 </button>
               </div>
             </form>

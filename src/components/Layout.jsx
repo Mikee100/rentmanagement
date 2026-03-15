@@ -1,5 +1,24 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
+import { 
+  LayoutDashboard, 
+  Building2, 
+  Users, 
+  CreditCard, 
+  Wrench, 
+  TrendingUp, 
+  ClipboardList, 
+  Library, 
+  UserCircle, 
+  History, 
+  Settings, 
+  LogOut,
+  ChevronLeft,
+  ChevronRight,
+  Menu,
+  X
+} from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import './Layout.css';
 
@@ -15,14 +34,9 @@ const Layout = ({ children }) => {
     const handleResize = () => {
       const mobile = window.innerWidth <= 768;
       setIsMobile(mobile);
-      if (mobile) {
-        setIsCollapsed(true);
-      }
+      if (mobile) setIsCollapsed(true);
     };
-
     window.addEventListener('resize', handleResize);
-    handleResize();
-
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
@@ -32,85 +46,126 @@ const Layout = ({ children }) => {
   };
 
   const navItems = [
-    { path: '/dashboard', label: 'Dashboard', icon: '📊' },
-    { path: '/apartments', label: 'Apartments', icon: '🏢' },
-    { path: '/tenants', label: 'Tenants', icon: '👥' },
-    { path: '/payments', label: 'Payments', icon: '💰' },
-    { path: '/maintenance', label: 'Maintenance', icon: '🔧' },
-    { path: '/expenses', label: 'Expenses', icon: '📈' },
-    { path: '/reports', label: 'Reports', icon: '📋' },
+    { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { path: '/apartments', label: 'Apartments', icon: Building2 },
+    { path: '/tenants', label: 'Tenants', icon: Users },
+    { path: '/payments', label: 'Payments', icon: CreditCard },
+    { path: '/maintenance', label: 'Maintenance', icon: Wrench },
+    { path: '/expenses', label: 'Expenses', icon: TrendingUp },
+    { path: '/reports', label: 'Reports', icon: ClipboardList },
     ...(isAdmin() ? [
-      { path: '/equity-bank-test', label: 'Equity Bank Test', icon: '🏦' }
+      { path: '/equity-bank-test', label: 'Bank Integration', icon: Library }
     ] : []),
     ...(isSuperadmin() ? [
-      { path: '/users', label: 'Users', icon: '👤' },
-      { path: '/activity-logs', label: 'Activity Logs', icon: '📝' },
-      { path: '/paybill-config', label: 'Paybill Setup', icon: '💳' }
+      { path: '/users', label: 'User Controls', icon: UserCircle },
+      { path: '/activity-logs', label: 'Audit Logs', icon: History },
+      { path: '/paybill-config', label: 'System Setup', icon: Settings }
     ] : []),
   ];
 
-  const toggleSidebar = () => {
-    setIsCollapsed(!isCollapsed);
-  };
-
   return (
-    <div className="layout">
-      {isMobile && (
-        <button 
-          className="mobile-menu-toggle"
-          onClick={() => setIsCollapsed(!isCollapsed)}
-          aria-label="Toggle menu"
-        >
-          ☰
-        </button>
-      )}
-      <div className={`sidebar-overlay ${isMobile && !isCollapsed ? 'active' : ''}`} 
-           onClick={() => setIsCollapsed(true)} />
-      <nav className={`sidebar ${isCollapsed ? 'collapsed' : ''} ${isMobile ? 'mobile' : ''}`}>
-        <div className="sidebar-header">
-          {!isCollapsed && (
-            <div className="sidebar-title">
-              <h2>Rent Management</h2>
-            </div>
-          )}
-          {isCollapsed && (
-            <div className="sidebar-title">
-              <h2>RM</h2>
-            </div>
-          )}
-          <button className="sidebar-toggle" onClick={toggleSidebar} aria-label="Toggle sidebar">
-            {isCollapsed ? '→' : '←'}
+    <div className="layout-root">
+      <AnimatePresence>
+        {isMobile && !isCollapsed && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="sidebar-overlay-modern"
+            onClick={() => setIsCollapsed(true)}
+          />
+        )}
+      </AnimatePresence>
+
+      <motion.aside 
+        initial={false}
+        animate={{ 
+          width: isCollapsed ? (isMobile ? 0 : 80) : 260,
+          x: isMobile && isCollapsed ? -260 : 0
+        }}
+        transition={{ type: "spring", stiffness: 300, damping: 30 }}
+        className="sidebar-modern glass"
+      >
+        <div className="sidebar-header-modern">
+          <div className="logo-container">
+            <Building2 size={24} className="logo-icon" />
+            {!isCollapsed && (
+              <motion.span 
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="logo-text"
+              >
+                RentElite
+              </motion.span>
+            )}
+          </div>
+          <button className="collapse-toggle" onClick={() => setIsCollapsed(!isCollapsed)}>
+            {isCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
           </button>
         </div>
-        <ul className="nav-menu">
-          {navItems.map((item) => (
-            <li key={item.path}>
+
+        <nav className="nav-container-modern">
+          {navItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = location.pathname.startsWith(item.path);
+            return (
               <Link
+                key={item.path}
                 to={item.path}
-                className={location.pathname.startsWith(item.path) ? 'active' : ''}
+                className={`nav-link-modern ${isActive ? 'active' : ''}`}
                 title={isCollapsed ? item.label : ''}
               >
-                <span className="nav-icon">{item.icon}</span>
-                {!isCollapsed && <span className="nav-label">{item.label}</span>}
+                <div className="icon-wrapper">
+                  <Icon size={20} />
+                </div>
+                {!isCollapsed && (
+                  <motion.span 
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    className="label-text"
+                  >
+                    {item.label}
+                  </motion.span>
+                )}
+                {isActive && (
+                  <motion.div 
+                    layoutId="active-nav"
+                    className="active-indicator"
+                  />
+                )}
               </Link>
-            </li>
-          ))}
-        </ul>
-        
-        {/* Logout */}
-        <div className="sidebar-footer">
-          <button className="logout-btn" onClick={handleLogout} title={isCollapsed ? "Logout" : ""}>
-            <span className="nav-icon">🚪</span>
-            {!isCollapsed && <span className="nav-label">Logout</span>}
+            );
+          })}
+        </nav>
+
+        <div className="sidebar-footer-modern">
+          <button className="logout-button-modern" onClick={handleLogout}>
+            <div className="icon-wrapper">
+              <LogOut size={20} />
+            </div>
+            {!isCollapsed && <span className="label-text">Log Out</span>}
           </button>
         </div>
-      </nav>
-      <main className={`main-content ${isCollapsed ? 'expanded' : ''}`}>
-        {children}
+      </motion.aside>
+
+      <main className="main-viewport">
+        {isMobile && (
+          <header className="mobile-header-modern glass">
+            <button className="menu-btn" onClick={() => setIsCollapsed(false)}>
+              <Menu size={24} />
+            </button>
+            <span className="mobile-logo">RentElite</span>
+            <div className="user-initials">{user?.name?.[0] || 'U'}</div>
+          </header>
+        )}
+        <div className="content-scroll-area">
+          {children}
+        </div>
       </main>
     </div>
   );
 };
 
 export default Layout;
+
 

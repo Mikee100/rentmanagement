@@ -17,6 +17,8 @@ import Users from './pages/Users';
 import Reports from './pages/Reports';
 import ActivityLogs from './pages/ActivityLogs';
 import EquityBankTest from './pages/EquityBankTest';
+import AssignTenant from './pages/AssignTenant';
+import UnitDetail from './pages/UnitDetail';
 
 // Protected Route Component
 const ProtectedRoute = ({ children, allowedRoles }) => {
@@ -86,6 +88,8 @@ function App() {
                         <Route path="/dashboard" element={<Dashboard />} />
                         <Route path="/apartments" element={<Apartments />} />
                         <Route path="/apartments/:id" element={<ApartmentDetail />} />
+                        <Route path="/assign-tenant/:houseId" element={<AssignTenant />} />
+                        <Route path="/units/:houseId" element={<UnitDetail />} />
                         <Route path="/tenants" element={<Tenants />} />
                         <Route path="/tenants/:id" element={<TenantDetail />} />
                         <Route path="/payments" element={<Payments />} />

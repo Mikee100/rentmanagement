@@ -20,6 +20,9 @@ const Reports = () => {
   const [tenantLedger, setTenantLedger] = useState(null);
   const [outstandingBalances, setOutstandingBalances] = useState(null);
   const [revenueByApartment, setRevenueByApartment] = useState(null);
+  const [apartmentMonthlyUnits, setApartmentMonthlyUnits] = useState(null);
+  const [selectedMonth, setSelectedMonth] = useState(String(new Date().getMonth() + 1).padStart(2, '0'));
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   
   const toast = useToast();
 
@@ -37,8 +40,10 @@ const Reports = () => {
       fetchRevenueByApartment();
     } else if (activeTab === 'ledger' && selectedTenant) {
       fetchTenantLedger();
+    } else if (activeTab === 'apartment-units' && selectedApartment && selectedMonth && selectedYear) {
+      fetchApartmentMonthlyUnits();
     }
-  }, [activeTab, startDate, endDate, selectedTenant, selectedApartment]);
+  }, [activeTab, startDate, endDate, selectedTenant, selectedApartment, selectedMonth, selectedYear]);
 
   const fetchTenants = async () => {
     try {
@@ -125,6 +130,25 @@ const Reports = () => {
     }
   };
 
+  const fetchApartmentMonthlyUnits = async () => {
+    if (!selectedApartment) return;
+
+    try {
+      setLoading(true);
+      const response = await reportsAPI.getMonthlyApartmentUnits({
+        apartmentId: selectedApartment,
+        month: selectedMonth,
+        year: selectedYear,
+      });
+      setApartmentMonthlyUnits(response.data);
+    } catch (error) {
+      console.error('Error fetching monthly apartment units report:', error);
+      toast.error('Failed to fetch monthly unit report');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const formatCurrency = (amount) => {
     return `KSh ${(amount || 0).toLocaleString()}`;
   };
@@ -183,6 +207,25 @@ const Reports = () => {
         filename = `tenant-ledger-${tenantLedger.tenant.name}`;
         title = `Tenant Ledger - ${tenantLedger.tenant.name}`;
         break;
+      case 'apartment-units':
+        if (!apartmentMonthlyUnits) return;
+        data = apartmentMonthlyUnits.units.map((unit) => ({
+          Unit: unit.houseNumber,
+          Tenant: unit.tenantName || '—',
+          Rent: formatCurrency(unit.rentAmount),
+          Expected: formatCurrency(unit.totalExpected),
+          Paid: formatCurrency(unit.totalPaid),
+          Due: formatCurrency(unit.totalDeficit),
+          Status: unit.isCleared ? 'Cleared' : 'Due',
+        }));
+        filename = `apartment-units-${apartmentMonthlyUnits.apartment.name}-${selectedMonth}-${selectedYear}`;
+        title = `Monthly Units - ${apartmentMonthlyUnits.apartment.name} (${selectedMonth}/${selectedYear})`;
+        break;
+    }
+
+    if (!data.length) {
+      toast.warning('No data to export for this report.');
+      return;
     }
 
     if (format === 'pdf') {
@@ -246,6 +289,12 @@ const Reports = () => {
         >
           Tenant Ledger
         </button>
+        <button
+          className={activeTab === 'apartment-units' ? 'active' : ''}
+          onClick={() => setActiveTab('apartment-units')}
+        >
+          Monthly Units by Apartment
+        </button>
       </div>
 
       <div className="report-filters">
@@ -260,6 +309,47 @@ const Reports = () => {
               <option key={apt._id} value={apt._id}>{apt.name}</option>
             ))}
           </select>
+        )}
+        {activeTab === 'apartment-units' && (
+          <>
+            <select
+              value={selectedApartment}
+              onChange={(e) => setSelectedApartment(e.target.value)}
+              className="filter-select"
+            >
+              <option value="">Select Apartment</option>
+              {apartments.map((apt) => (
+                <option key={apt._id} value={apt._id}>
+                  {apt.name}
+                </option>
+              ))}
+            </select>
+            <select
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(e.target.value)}
+              className="filter-select"
+            >
+              <option value="01">January</option>
+              <option value="02">February</option>
+              <option value="03">March</option>
+              <option value="04">April</option>
+              <option value="05">May</option>
+              <option value="06">June</option>
+              <option value="07">July</option>
+              <option value="08">August</option>
+              <option value="09">September</option>
+              <option value="10">October</option>
+              <option value="11">November</option>
+              <option value="12">December</option>
+            </select>
+            <input
+              type="number"
+              className="date-input"
+              style={{ minWidth: '120px' }}
+              value={selectedYear}
+              onChange={(e) => setSelectedYear(e.target.value)}
+            />
+          </>
         )}
         {activeTab === 'ledger' && (
           <select
@@ -503,6 +593,71 @@ const Reports = () => {
                 ) : (
                   <div className="empty-state">
                     <p>No ledger data available</p>
+                  </div>
+                )}
+              </>
+            )}
+
+            {activeTab === 'apartment-units' && (
+              <>
+                {!selectedApartment ? (
+                  <div className="empty-state">
+                    <p>Please select an apartment and month to view the report.</p>
+                  </div>
+                ) : apartmentMonthlyUnits ? (
+                  <div className="apartment-units-report">
+                    <h2>
+                      Monthly Unit Report - {apartmentMonthlyUnits.apartment.name}{' '}
+                      ({selectedMonth}/{selectedYear})
+                    </h2>
+                    <div className="balances-table">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Unit</th>
+                            <th>Tenant</th>
+                            <th>Rent</th>
+                            <th>Expected</th>
+                            <th>Paid</th>
+                            <th>Due</th>
+                            <th>Status</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {apartmentMonthlyUnits.units.map((unit) => {
+                            const due = unit.totalDeficit;
+                            const cleared = unit.isCleared;
+                            return (
+                              <tr key={unit.houseId}>
+                                <td>{unit.houseNumber}</td>
+                                <td>{unit.tenantName || '—'}</td>
+                                <td>{formatCurrency(unit.rentAmount)}</td>
+                                <td>{formatCurrency(unit.totalExpected)}</td>
+                                <td>{formatCurrency(unit.totalPaid)}</td>
+                                <td className={due > 0 ? 'outstanding' : ''}>
+                                  {formatCurrency(due)}
+                                </td>
+                                <td>
+                                  <span
+                                    className={
+                                      cleared
+                                        ? 'unit-status-icon unit-status-cleared'
+                                        : 'unit-status-icon unit-status-due'
+                                    }
+                                  >
+                                    {cleared ? '✅' : '❌'}
+                                  </span>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="empty-state">
+                    <p>No data available for the selected month.</p>
                   </div>
                 )}
               </>

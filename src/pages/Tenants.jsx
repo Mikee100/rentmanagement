@@ -367,141 +367,152 @@ const Tenants = () => {
         </div>
       )}
 
-      {/* Modal */}
       {showModal && (
         <div className="modal-overlay" onClick={() => { setShowModal(false); resetForm(); }}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h2>{selectedTenant ? 'Edit Tenant' : 'Add Tenant'}</h2>
+          <div className="modal-premium" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-premium-header">
+              <h2>{selectedTenant ? 'Edit Tenant' : 'Add Tenant'}</h2>
+              <button className="btn-close-sm" onClick={() => { setShowModal(false); resetForm(); }}>×</button>
+            </div>
             <form onSubmit={handleSubmit}>
-              <div className="form-row">
-                <div className="form-group">
-                  <label>First Name</label>
-                  <input
-                    type="text"
-                    value={formData.firstName}
-                    onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
-                    required
-                  />
+              <div className="modal-premium-body">
+                <div className="form-row-premium">
+                  <div className="form-group-premium">
+                    <label>First Name</label>
+                    <input
+                      type="text"
+                      value={formData.firstName}
+                      onChange={(e) => setFormData({ ...formData, firstName: e.target.value })}
+                      required
+                      placeholder="Tenant's first name"
+                    />
+                  </div>
+                  <div className="form-group-premium">
+                    <label>Last Name</label>
+                    <input
+                      type="text"
+                      value={formData.lastName}
+                      onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
+                      placeholder="Tenant's last name"
+                    />
+                  </div>
                 </div>
-                <div className="form-group">
-                  <label>Last Name</label>
-                  <input
-                    type="text"
-                    value={formData.lastName}
-                    onChange={(e) => setFormData({ ...formData, lastName: e.target.value })}
-                    required
-                  />
+                <div className="form-row-premium">
+                  <div className="form-group-premium">
+                    <label>Email</label>
+                    <input
+                      type="email"
+                      value={formData.email}
+                      onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                      placeholder="email@example.com"
+                    />
+                  </div>
+                  <div className="form-group-premium">
+                    <label>Phone</label>
+                    <input
+                      type="tel"
+                      value={formData.phone}
+                      onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                      placeholder="+123 456 789"
+                    />
+                  </div>
                 </div>
-              </div>
-              <div className="form-group">
-                <label>Email</label>
-                <input
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label>Phone</label>
-                <input
-                  type="tel"
-                  value={formData.phone}
-                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Bank Account Number (Equity)</label>
-                  <input
-                    type="text"
-                    value={formData.bankAccountNumber}
-                    onChange={(e) => setFormData({ ...formData, bankAccountNumber: e.target.value })}
-                    placeholder="e.g., 1234567890"
-                  />
-                  <small style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px', display: 'block' }}>
-                    Used to automatically match payments from Equity Bank
-                  </small>
+                <div className="form-row-premium">
+                  <div className="form-group-premium">
+                    <label>Bank Account Number (Equity)</label>
+                    <input
+                      type="text"
+                      value={formData.bankAccountNumber}
+                      onChange={(e) => setFormData({ ...formData, bankAccountNumber: e.target.value })}
+                      placeholder="e.g., 1234567890"
+                    />
+                    <small style={{ fontSize: '0.75rem', color: 'var(--text-light)', marginTop: '4px', display: 'block' }}>
+                      Used to match payments from Equity Bank
+                    </small>
+                  </div>
+                  <div className="form-group-premium">
+                    <label>Bank Name</label>
+                    <select
+                      value={formData.bankName}
+                      onChange={(e) => setFormData({ ...formData, bankName: e.target.value })}
+                    >
+                      <option value="Equity">Equity</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
                 </div>
-                <div className="form-group">
-                  <label>Bank Name</label>
+                <div className="form-row-premium">
+                  <div className="form-group-premium">
+                    <label>Lease Start Date</label>
+                    <input
+                      type="date"
+                      value={formData.leaseStartDate}
+                      onChange={(e) => setFormData({ ...formData, leaseStartDate: e.target.value })}
+                    />
+                  </div>
+                  <div className="form-group-premium">
+                    <label>Lease End Date</label>
+                    <input
+                      type="date"
+                      value={formData.leaseEndDate}
+                      onChange={(e) => setFormData({ ...formData, leaseEndDate: e.target.value })}
+                    />
+                  </div>
+                </div>
+                <div className="form-row-premium">
+                  <div className="form-group-premium">
+                    <label>Emergency Contact Name</label>
+                    <input
+                      type="text"
+                      value={formData.emergencyContact.name}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        emergencyContact: { ...formData.emergencyContact, name: e.target.value }
+                      })}
+                      placeholder="Name"
+                    />
+                  </div>
+                  <div className="form-group-premium">
+                    <label>Emergency Contact Phone</label>
+                    <input
+                      type="tel"
+                      value={formData.emergencyContact.phone}
+                      onChange={(e) => setFormData({
+                        ...formData,
+                        emergencyContact: { ...formData.emergencyContact, phone: e.target.value }
+                      })}
+                      placeholder="Phone"
+                    />
+                  </div>
+                </div>
+                <div className="form-group-premium">
+                  <label>Status</label>
                   <select
-                    value={formData.bankName}
-                    onChange={(e) => setFormData({ ...formData, bankName: e.target.value })}
+                    value={formData.status}
+                    onChange={(e) => setFormData({ ...formData, status: e.target.value })}
                   >
-                    <option value="Equity">Equity</option>
-                    <option value="Other">Other</option>
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                    <option value="past">Past</option>
                   </select>
                 </div>
-              </div>
-              <div className="form-group">
-                <label>Note</label>
-                <p style={{ fontSize: '0.85rem', color: 'var(--text-secondary)', margin: 0 }}>
-                  Houses are assigned from the Apartment detail page
-                </p>
-              </div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Lease Start Date</label>
-                  <input
-                    type="date"
-                    value={formData.leaseStartDate}
-                    onChange={(e) => setFormData({ ...formData, leaseStartDate: e.target.value })}
-                    required
-                  />
-                </div>
-                <div className="form-group">
-                  <label>Lease End Date</label>
-                  <input
-                    type="date"
-                    value={formData.leaseEndDate}
-                    onChange={(e) => setFormData({ ...formData, leaseEndDate: e.target.value })}
-                    required
-                  />
+                <div className="form-group-premium">
+                  <label>Note</label>
+                  <p style={{ fontSize: '0.875rem', color: 'var(--text-muted)', margin: 0, fontStyle: 'italic' }}>
+                    Houses are assigned from the Apartment detail page
+                  </p>
                 </div>
               </div>
-              <div className="form-group">
-                <label>Emergency Contact Name</label>
-                <input
-                  type="text"
-                  value={formData.emergencyContact.name}
-                  onChange={(e) => setFormData({
-                    ...formData,
-                    emergencyContact: { ...formData.emergencyContact, name: e.target.value }
-                  })}
-                />
-              </div>
-              <div className="form-group">
-                <label>Emergency Contact Phone</label>
-                <input
-                  type="tel"
-                  value={formData.emergencyContact.phone}
-                  onChange={(e) => setFormData({
-                    ...formData,
-                    emergencyContact: { ...formData.emergencyContact, phone: e.target.value }
-                  })}
-                />
-              </div>
-              <div className="form-group">
-                <label>Status</label>
-                <select
-                  value={formData.status}
-                  onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                >
-                  <option value="active">Active</option>
-                  <option value="inactive">Inactive</option>
-                  <option value="past">Past</option>
-                </select>
-              </div>
-              <div className="form-actions">
-                <button type="submit" className="btn-primary">Save</button>
+              <div className="modal-premium-footer">
                 <button
                   type="button"
                   className="btn-secondary"
                   onClick={() => { setShowModal(false); resetForm(); }}
                 >
                   Cancel
+                </button>
+                <button type="submit" className="btn-primary" disabled={submitting}>
+                  {submitting ? 'Saving...' : 'Save Tenant'}
                 </button>
               </div>
             </form>

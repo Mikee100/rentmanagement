@@ -280,6 +280,18 @@
   font-weight: 600;
 }
 
+.unit-status-icon {
+  font-size: 1.1rem;
+}
+
+.unit-status-cleared {
+  color: var(--success);
+}
+
+.unit-status-due {
+  color: var(--danger);
+}
+
 .revenue-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));

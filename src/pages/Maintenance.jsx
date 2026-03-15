@@ -247,94 +247,101 @@ const Maintenance = () => {
 
       {showModal && (
         <div className="modal-overlay" onClick={() => { setShowModal(false); resetForm(); }}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-            <h2>{selectedRequest ? 'Edit Request' : 'New Maintenance Request'}</h2>
+          <div className="modal-premium" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-premium-header">
+              <h2>{selectedRequest ? 'Edit Request' : 'New Maintenance Request'}</h2>
+              <button className="btn-close-sm" onClick={() => { setShowModal(false); resetForm(); }}>×</button>
+            </div>
             <form onSubmit={handleSubmit}>
-              <div className="form-group">
-                <label>House</label>
-                <select
-                  value={formData.house}
-                  onChange={(e) => setFormData({ ...formData, house: e.target.value })}
-                  required
-                >
-                  <option value="">Select House</option>
-                  {houses.map(house => (
-                    <option key={house._id} value={house._id}>
-                      {house.houseNumber} - {house.apartment?.name || 'N/A'}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="form-group">
-                <label>Title</label>
-                <input
-                  type="text"
-                  value={formData.title}
-                  onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label>Description</label>
-                <textarea
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  rows="4"
-                  required
-                />
-              </div>
-              <div className="form-row">
-                <div className="form-group">
-                  <label>Category</label>
+              <div className="modal-premium-body">
+                <div className="form-group-premium">
+                  <label>House</label>
                   <select
-                    value={formData.category}
-                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                    value={formData.house}
+                    onChange={(e) => setFormData({ ...formData, house: e.target.value })}
+                    required
                   >
-                    <option value="plumbing">Plumbing</option>
-                    <option value="electrical">Electrical</option>
-                    <option value="hvac">HVAC</option>
-                    <option value="appliance">Appliance</option>
-                    <option value="structural">Structural</option>
-                    <option value="pest_control">Pest Control</option>
-                    <option value="cleaning">Cleaning</option>
-                    <option value="other">Other</option>
+                    <option value="">Select House</option>
+                    {houses.map(house => (
+                      <option key={house._id} value={house._id}>
+                        {house.houseNumber} - {house.apartment?.name || 'N/A'}
+                      </option>
+                    ))}
                   </select>
                 </div>
-                <div className="form-group">
-                  <label>Priority</label>
-                  <select
-                    value={formData.priority}
-                    onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
-                  >
-                    <option value="low">Low</option>
-                    <option value="medium">Medium</option>
-                    <option value="high">High</option>
-                    <option value="urgent">Urgent</option>
-                  </select>
+                <div className="form-group-premium">
+                  <label>Title</label>
+                  <input
+                    type="text"
+                    value={formData.title}
+                    onChange={(e) => setFormData({ ...formData, title: e.target.value })}
+                    required
+                  />
                 </div>
-                {selectedRequest && (
-                  <div className="form-group">
-                    <label>Status</label>
+                <div className="form-group-premium">
+                  <label>Description</label>
+                  <textarea
+                    value={formData.description}
+                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    rows="4"
+                    required
+                  />
+                </div>
+                <div className="form-row-premium">
+                  <div className="form-group-premium">
+                    <label>Category</label>
                     <select
-                      value={formData.status}
-                      onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                      value={formData.category}
+                      onChange={(e) => setFormData({ ...formData, category: e.target.value })}
                     >
-                      <option value="pending">Pending</option>
-                      <option value="in_progress">In Progress</option>
-                      <option value="completed">Completed</option>
-                      <option value="cancelled">Cancelled</option>
+                      <option value="plumbing">Plumbing</option>
+                      <option value="electrical">Electrical</option>
+                      <option value="hvac">HVAC</option>
+                      <option value="appliance">Appliance</option>
+                      <option value="structural">Structural</option>
+                      <option value="pest_control">Pest Control</option>
+                      <option value="cleaning">Cleaning</option>
+                      <option value="other">Other</option>
                     </select>
                   </div>
-                )}
+                  <div className="form-group-premium">
+                    <label>Priority</label>
+                    <select
+                      value={formData.priority}
+                      onChange={(e) => setFormData({ ...formData, priority: e.target.value })}
+                    >
+                      <option value="low">Low</option>
+                      <option value="medium">Medium</option>
+                      <option value="high">High</option>
+                      <option value="urgent">Urgent</option>
+                    </select>
+                  </div>
+                  {selectedRequest && (
+                    <div className="form-group-premium">
+                      <label>Status</label>
+                      <select
+                        value={formData.status}
+                        onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                      >
+                        <option value="pending">Pending</option>
+                        <option value="in_progress">In Progress</option>
+                        <option value="completed">Completed</option>
+                        <option value="cancelled">Cancelled</option>
+                      </select>
+                    </div>
+                  )}
+                </div>
               </div>
-              <div className="form-actions">
-                <button type="submit" className="btn-primary">Save</button>
+              <div className="modal-premium-footer">
                 <button
                   type="button"
                   className="btn-secondary"
                   onClick={() => { setShowModal(false); resetForm(); }}
                 >
                   Cancel
+                </button>
+                <button type="submit" className="btn-primary" disabled={submitting}>
+                  {submitting ? 'Saving...' : 'Save Request'}
                 </button>
               </div>
             </form>
