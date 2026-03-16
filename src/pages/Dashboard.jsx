@@ -123,12 +123,12 @@ const Dashboard = () => {
 
   const statItems = [
     { title: 'Apartments', value: stats.totalApartments, icon: Building2, color: '#6366f1' },
-    { title: 'Total Units', value: stats.totalHouses, icon: Home, color: '#10b981' },
+    { title: 'Total Houses', value: stats.totalHouses, icon: Home, color: '#10b981' },
     { title: 'Occupied', value: stats.occupiedHouses, icon: CheckCircle2, color: '#8b5cf6' },
     { title: 'Available', value: stats.availableHouses, icon: PlusCircle, color: '#3b82f6' },
     { title: 'Maintenance', value: stats.maintenanceHouses, icon: Wrench, color: '#f59e0b' },
     { title: 'Active Tenants', value: stats.totalTenants, icon: Users, color: '#ec4899' },
-    { title: 'Revenue (KES)', value: stats.monthlyRevenue.toLocaleString(), icon: Banknote, color: '#10b981' },
+    { title: 'Revenue (KES)', value: (stats.monthlyRevenue || 0).toLocaleString(), icon: Banknote, color: '#10b981' },
     { title: 'Total Invoices', value: stats.totalPayments, icon: BarChart3, color: '#6366f1' },
   ];
 

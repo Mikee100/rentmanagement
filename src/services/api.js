@@ -48,6 +48,7 @@ export const apartmentsAPI = {
   create: (data) => api.post('/apartments', data),
   update: (id, data) => api.put(`/apartments/${id}`, data),
   delete: (id) => api.delete(`/apartments/${id}`),
+  applyGlobalRent: (id, rentAmount) => api.post(`/apartments/${id}/apply-global-rent`, { rentAmount }),
 };
 
 // Houses API (Units)
@@ -95,6 +96,7 @@ export const paymentsAPI = {
   searchHouse: (houseNumber) => api.get(`/payments/search/house/${houseNumber}`),
   getRevenueTrend: (months = 6) => api.get(`/payments/analytics/revenue-trend?months=${months}`),
   getPaymentStatus: (months = 6) => api.get(`/payments/analytics/payment-status?months=${months}`),
+  batchMarkPaid: (data) => api.post('/payments/batch-mark-paid', data),
 };
 
 // System Config API
@@ -167,6 +169,7 @@ export const reportsAPI = {
     const queryString = new URLSearchParams(params || {}).toString();
     return api.get(`/reports/monthly-apartment-units${queryString ? `?${queryString}` : ''}`);
   },
+  getApartmentFinancialHistory: (apartmentId) => api.get(`/reports/apartment-financial-history/${apartmentId}`),
 };
 
 // Activity Logs API

@@ -137,6 +137,15 @@ export const generatePaymentReceipt = (payment) => {
   doc.text(`KSh ${paidAmount.toLocaleString()}`, pageWidth - 25, yPos, { align: 'right' });
   yPos += 8;
 
+  // Overpayment (if any)
+  if (payment.overpayment && payment.overpayment > 0) {
+    doc.setFont('helvetica', 'normal');
+    doc.text('Overpayment/Credit:', 25, yPos);
+    doc.setFont('helvetica', 'bold');
+    doc.text(`KSh ${payment.overpayment.toLocaleString()}`, pageWidth - 25, yPos, { align: 'right' });
+    yPos += 8;
+  }
+
   // Deficit (if any)
   if (payment.deficit && payment.deficit > 0) {
     doc.setFont('helvetica', 'normal');
@@ -163,8 +172,16 @@ export const generatePaymentReceipt = (payment) => {
   doc.text('Total Paid:', 25, yPos);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(12);
-  const totalPaid = paidAmount + (payment.lateFee || 0);
+  const totalPaid = paidAmount + (payment.overpayment || 0) + (payment.lateFee || 0);
   doc.text(`KSh ${totalPaid.toLocaleString()}`, pageWidth - 25, yPos, { align: 'right' });
+
+  // Advance Tag
+  if (payment.isAdvance) {
+    doc.setFontSize(10);
+    doc.setTextColor(142, 68, 173); // Purple for advance
+    doc.text('** ADVANCE PAYMENT **', pageWidth - 25, yPos + 7, { align: 'right' });
+    doc.setTextColor(...textColor);
+  }
   yPos += 15;
 
   // Payment Method & Status

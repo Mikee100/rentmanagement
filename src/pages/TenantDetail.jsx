@@ -64,11 +64,15 @@ const TenantDetail = () => {
       setTenant(tenantRes.data);
       setPayments(paymentsRes.data);
       
-      // Fetch maintenance requests if tenant has a house
-      if (tenantRes.data.house) {
+      // Fetch maintenance requests for all houses
+      if (tenantRes.data.houses && tenantRes.data.houses.length > 0) {
         try {
-          const maintenanceRes = await maintenanceAPI.getAll({ house: tenantRes.data.house._id });
-          setMaintenanceRequests(maintenanceRes.data);
+          const houseIds = tenantRes.data.houses.map(h => h._id || h);
+          const maintenanceRes = await Promise.all(
+            houseIds.map(id => maintenanceAPI.getAll({ house: id }))
+          );
+          const allRequests = maintenanceRes.flatMap(res => res.data);
+          setMaintenanceRequests(allRequests);
         } catch (error) {
           console.error('Error fetching maintenance requests:', error);
         }
@@ -143,17 +147,23 @@ const TenantDetail = () => {
 
   const handleMpesaPayment = async (e) => {
     e.preventDefault();
-    if (!tenant.house) {
-      toast.warning('Tenant has no house assigned');
+    if (!tenant.houses || tenant.houses.length === 0) {
+      toast.warning('Tenant has no houses assigned');
       return;
+    }
+
+    const selectedHouse = tenant.houses.find(h => h.houseNumber === mpesaForm.houseNumber);
+    if (!selectedHouse) {
+        toast.warning('Please select a valid house number');
+        return;
     }
 
     setMpesaLoading(true);
     try {
       const result = await mpesaAPI.initiateSTKPush({
         phoneNumber: mpesaForm.phoneNumber,
-        amount: parseFloat(mpesaForm.amount) || tenant.house.rentAmount,
-        houseNumber: tenant.house.houseNumber,
+        amount: parseFloat(mpesaForm.amount),
+        houseNumber: mpesaForm.houseNumber,
         tenantId: tenant._id,
         month: mpesaForm.month,
         year: mpesaForm.year
@@ -163,7 +173,8 @@ const TenantDetail = () => {
       setShowMpesaModal(false);
       setMpesaForm({
         phoneNumber: tenant.phone || '',
-        amount: tenant.house.rentAmount || '',
+        amount: '',
+        houseNumber: '',
         month: String(new Date().getMonth() + 1).padStart(2, '0'),
         year: new Date().getFullYear()
       });
@@ -199,6 +210,8 @@ const TenantDetail = () => {
   const totalDeficit = payments
     .reduce((sum, p) => sum + (p.deficit || 0), 0);
 
+  const totalMonthlyRent = tenant.houses?.reduce((sum, h) => sum + (h.rentAmount || 0), 0) || 0;
+
   return (
     <div className="tenant-detail-page">
       {/* Compact Header */}
@@ -230,26 +243,26 @@ const TenantDetail = () => {
       <div className="quick-stats-bar">
         <div className="stat-box">
           <div className="stat-label">Total Paid</div>
-          <div className="stat-value success">KSh {totalPaid.toLocaleString()}</div>
+          <div className="stat-value success">KSh {(totalPaid || 0).toLocaleString()}</div>
         </div>
         <div className="stat-box">
           <div className="stat-label">Pending</div>
-          <div className="stat-value warning">KSh {totalPending.toLocaleString()}</div>
+          <div className="stat-value warning">KSh {(totalPending || 0).toLocaleString()}</div>
         </div>
         {totalDeficit > 0 && (
           <div className="stat-box">
             <div className="stat-label">Deficit</div>
-            <div className="stat-value danger">KSh {totalDeficit.toLocaleString()}</div>
+            <div className="stat-value danger">KSh {(totalDeficit || 0).toLocaleString()}</div>
           </div>
         )}
         <div className="stat-box">
-          <div className="stat-label">Payments</div>
-          <div className="stat-value">{payments.length}</div>
+          <div className="stat-label">Units</div>
+          <div className="stat-value">{tenant.houses?.length || 0}</div>
         </div>
-        {tenant.house && (
+        {tenant.houses?.length > 0 && (
           <div className="stat-box">
-            <div className="stat-label">Monthly Rent</div>
-            <div className="stat-value">KSh {tenant.house.rentAmount.toLocaleString()}</div>
+            <div className="stat-label">Total Monthly Rent</div>
+            <div className="stat-value">KSh {(totalMonthlyRent || 0).toLocaleString()}</div>
           </div>
         )}
       </div>
@@ -322,27 +335,27 @@ const TenantDetail = () => {
               </div>
             </div>
 
-            {tenant.house && (
+            {tenant.houses && tenant.houses.length > 0 && (
               <div className="info-section">
-                <h2 className="section-title">Current Residence</h2>
-                <div className="info-grid">
-                  <div className="info-item">
-                    <span className="info-label">House Number</span>
-                    <span className="info-value highlight">{tenant.house.houseNumber}</span>
-                  </div>
-                  <div className="info-item">
-                    <span className="info-label">Apartment</span>
-                    <span className="info-value">{tenant.house.apartment?.name || 'N/A'}</span>
-                  </div>
-                  <div className="info-item">
-                    <span className="info-label">Address</span>
-                    <span className="info-value">{tenant.house.apartment?.address || 'N/A'}</span>
-                  </div>
-                  <div className="info-item">
-                    <span className="info-label">Monthly Rent</span>
-                    <span className="info-value highlight">KSh {tenant.house.rentAmount.toLocaleString()}</span>
-                  </div>
-                </div>
+                <h2 className="section-title">Current Residences ({tenant.houses.length})</h2>
+                {tenant.houses.map((house, idx) => (
+                    <div key={house._id} className="house-detail-item" style={{ marginBottom: idx < tenant.houses.length - 1 ? '1.5rem' : 0 }}>
+                        <div className="info-grid">
+                            <div className="info-item">
+                                <span className="info-label">House Number</span>
+                                <span className="info-value highlight">{house.houseNumber}</span>
+                            </div>
+                            <div className="info-item">
+                                <span className="info-label">Apartment</span>
+                                <span className="info-value">{house.apartment?.name || 'N/A'}</span>
+                            </div>
+                            <div className="info-item">
+                                <span className="info-label">Monthly Rent</span>
+                                <span className="info-value highlight">KSh {(house.rentAmount || 0).toLocaleString()}</span>
+                            </div>
+                        </div>
+                    </div>
+                ))}
               </div>
             )}
 
@@ -403,6 +416,7 @@ const TenantDetail = () => {
                             {payment.status}
                           </span>
                         </td>
+                        <td>{payment.house?.houseNumber || payment.houseNumber || 'N/A'}</td>
                         <td>{payment.month}/{payment.year}</td>
                       </tr>
                     ))
@@ -441,7 +455,7 @@ const TenantDetail = () => {
                         <span className="meta-tag">Completed: {new Date(request.completedDate).toLocaleDateString()}</span>
                       )}
                       {request.cost > 0 && (
-                        <span className="meta-tag">Cost: KSh {request.cost.toLocaleString()}</span>
+                        <span className="meta-tag">Cost: KSh {(request.cost || 0).toLocaleString()}</span>
                       )}
                     </div>
                   </div>
@@ -585,18 +599,34 @@ const TenantDetail = () => {
 
         {activeTab === 'payment-info' && (
           <div className="payment-info-content">
-            {tenant.house && (
+            {tenant.houses && tenant.houses.length > 0 && (
               <div className="quick-payment-card">
                 <h3>Quick Payment</h3>
+                <div className="mpesa-unit-selector" style={{ marginBottom: '1rem' }}>
+                    <label style={{ display: 'block', marginBottom: '0.5rem', fontSize: '0.85rem' }}>Select Unit for Payment</label>
+                    <select 
+                        style={{ width: '100%', padding: '0.6rem', borderRadius: '8px', border: '1px solid var(--border-subtle)', background: 'var(--bg-card)' }}
+                        onChange={(e) => {
+                            const h = tenant.houses.find(house => house._id === e.target.value);
+                            if (h) {
+                                setMpesaForm({
+                                    ...mpesaForm,
+                                    houseNumber: h.houseNumber,
+                                    amount: h.rentAmount.toString()
+                                });
+                            }
+                        }}
+                    >
+                        <option value="">-- Select Unit --</option>
+                        {tenant.houses.map(h => (
+                            <option key={h._id} value={h._id}>House {h.houseNumber} (KSh {h.rentAmount})</option>
+                        ))}
+                    </select>
+                </div>
                 <button
                   className="btn-mpesa-large"
+                  disabled={!mpesaForm.houseNumber}
                   onClick={() => {
-                    setMpesaForm({
-                      phoneNumber: tenant.phone || '',
-                      amount: tenant.house.rentAmount || '',
-                      month: String(new Date().getMonth() + 1).padStart(2, '0'),
-                      year: new Date().getFullYear()
-                    });
                     setShowMpesaModal(true);
                   }}
                 >
@@ -615,11 +645,11 @@ const TenantDetail = () => {
                   </div>
                   <div className="payment-detail-row">
                     <span className="detail-label">Account Number</span>
-                    <span className="detail-value highlight">{tenant.house?.houseNumber || 'N/A'}</span>
+                    <span className="detail-value highlight">{tenant.houses?.[0]?.houseNumber || 'N/A'}</span>
                   </div>
                   <div className="payment-detail-row">
                     <span className="detail-label">Amount</span>
-                    <span className="detail-value highlight">KSh {tenant.house?.rentAmount?.toLocaleString() || 'N/A'}</span>
+                    <span className="detail-value highlight">KSh {(tenant.houses?.[0]?.rentAmount || 0).toLocaleString() || 'N/A'}</span>
                   </div>
                 </div>
                 <div className="instructions-modern">
@@ -628,8 +658,8 @@ const TenantDetail = () => {
                     <li>Go to {paybillInfo.mobileMoneyProvider === 'mpesa' ? 'M-Pesa' : paybillInfo.mobileMoneyProvider?.toUpperCase()} menu</li>
                     <li>Select <strong>"Pay Bill"</strong></li>
                     <li>Enter Business Number: <strong>{paybillInfo.paybillNumber}</strong></li>
-                    <li>Enter Account Number: <strong>{tenant.house?.houseNumber || 'Your House Number'}</strong></li>
-                    <li>Enter Amount: <strong>KSh {tenant.house?.rentAmount?.toLocaleString() || 'Your Rent Amount'}</strong></li>
+                    <li>Enter Account Number: <strong>{tenant.houses?.[0]?.houseNumber || 'Your House Number'}</strong></li>
+                    <li>Enter Amount: <strong>KSh {(tenant.houses?.[0]?.rentAmount || 0).toLocaleString() || 'Your Rent Amount'}</strong></li>
                     <li>Enter your PIN and confirm</li>
                   </ol>
                 </div>
@@ -749,7 +779,7 @@ const TenantDetail = () => {
         </div>
       )}
 
-      {showMpesaModal && tenant.house && (
+      {showMpesaModal && tenant.houses && tenant.houses.length > 0 && (
         <div className="modal-overlay" onClick={() => setShowMpesaModal(false)}>
           <div className="modal-content-modern" onClick={(e) => e.stopPropagation()}>
             <h2>📱 Pay via M-Pesa STK Push</h2>
@@ -766,16 +796,23 @@ const TenantDetail = () => {
                 />
               </div>
               <div className="form-group">
+                <label>House Number</label>
+                <input
+                  type="text"
+                  value={mpesaForm.houseNumber}
+                  readOnly
+                  className="read-only-input"
+                />
+              </div>
+              <div className="form-group">
                 <label>Amount (KSh)</label>
                 <input
                   type="number"
                   step="0.01"
                   value={mpesaForm.amount}
                   onChange={(e) => setMpesaForm({ ...mpesaForm, amount: e.target.value })}
-                  placeholder={tenant.house.rentAmount}
                   required
                 />
-                <small>Monthly rent: KSh {tenant.house.rentAmount.toLocaleString()}</small>
               </div>
               <div className="form-row">
                 <div className="form-group">

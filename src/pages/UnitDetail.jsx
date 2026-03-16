@@ -70,7 +70,7 @@ const UnitDetail = () => {
     }
 
     if (!house.tenant) {
-      toast.error('This unit has no tenant assigned. Assign a tenant before recording payments.');
+      toast.error('This house has no tenant assigned. Assign a tenant before recording payments.');
       return;
     }
 
@@ -118,11 +118,11 @@ const UnitDetail = () => {
   };
 
   if (loading) {
-    return <LoadingSpinner text="Loading unit details..." fullScreen />;
+    return <LoadingSpinner text="Loading house details..." fullScreen />;
   }
 
   if (!house) {
-    return <div className="error">Unit not found</div>;
+    return <div className="error">House not found</div>;
   }
 
   const currentMonthDue = getCurrentMonthDue();
@@ -134,7 +134,7 @@ const UnitDetail = () => {
           ←
         </button>
         <div className="unit-header-info">
-          <h1>Unit {house.houseNumber}</h1>
+          <h1>House {house.houseNumber}</h1>
           <p className="unit-header-subtitle">
             {house.apartment?.name} · {house.apartment?.address}
           </p>
@@ -150,13 +150,13 @@ const UnitDetail = () => {
         <div className="unit-summary-card">
           <div className="summary-label">Monthly Rent</div>
           <div className="summary-value">
-            KSh {house.rentAmount.toLocaleString()}
+            KSh {(house.rentAmount || 0).toLocaleString()}
           </div>
         </div>
         <div className="unit-summary-card">
           <div className="summary-label">Current Month Due</div>
           <div className={`summary-value ${currentMonthDue > 0 ? 'danger' : 'success'}`}>
-            KSh {currentMonthDue.toLocaleString()}
+            KSh {(currentMonthDue || 0).toLocaleString()}
           </div>
         </div>
         {house.tenant && (
@@ -228,13 +228,13 @@ const UnitDetail = () => {
             </div>
           ) : (
             <div className="empty-state">
-              <p>No payments recorded for this unit yet.</p>
+              <p>No payments recorded for this house yet.</p>
             </div>
           )}
         </div>
 
         <div className="unit-payment-form-card">
-          <h2 className="section-title">Add Payment for This Unit</h2>
+          <h2 className="section-title">Add Payment for This House</h2>
           {house.tenant ? (
             <form onSubmit={handleRecordPayment}>
               <div className="form-group">
@@ -249,7 +249,7 @@ const UnitDetail = () => {
                   required
                 />
                 <small>
-                  Monthly rent: KSh {house.rentAmount.toLocaleString()}
+                  Monthly rent: KSh {(house.rentAmount || 0).toLocaleString()}
                 </small>
               </div>
               <div className="form-group">
@@ -305,8 +305,8 @@ const UnitDetail = () => {
           ) : (
             <div className="empty-state">
               <p>
-                This unit has no tenant assigned. Assign a tenant before recording
-                payments for this unit.
+                This house has no tenant assigned. Assign a tenant before recording
+                payments for this house.
               </p>
             </div>
           )}

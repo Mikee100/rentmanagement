@@ -4,6 +4,8 @@ import { useToast } from '../components/Toast';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { exportToPDF, exportToExcel, exportToCSV } from '../utils/export';
 import './Reports.css';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 
 const Reports = () => {
   const [activeTab, setActiveTab] = useState('income');
@@ -37,7 +39,9 @@ const Reports = () => {
     } else if (activeTab === 'outstanding') {
       fetchOutstandingBalances();
     } else if (activeTab === 'revenue') {
+      // Revenue view needs both revenue and outstanding snapshots
       fetchRevenueByApartment();
+      fetchOutstandingBalances();
     } else if (activeTab === 'ledger' && selectedTenant) {
       fetchTenantLedger();
     } else if (activeTab === 'apartment-units' && selectedApartment && selectedMonth && selectedYear) {
@@ -153,6 +157,228 @@ const Reports = () => {
     return `KSh ${(amount || 0).toLocaleString()}`;
   };
 
+  const buildApartmentBalanceMap = () => {
+    const map = {};
+    if (!outstandingBalances || !outstandingBalances.balances) return map;
+
+    outstandingBalances.balances.forEach((b) => {
+      const name = b.apartment?.name || 'N/A';
+      const curr = b.currentBalance || 0;
+      if (!map[name]) {
+        map[name] = { outstanding: 0, overpaid: 0 };
+      }
+      if (curr > 0) {
+        map[name].outstanding += curr;
+      } else if (curr < 0) {
+        map[name].overpaid += Math.abs(curr);
+      }
+    });
+
+    return map;
+  };
+
+  const exportApartmentUnitsPDF = () => {
+    if (!apartmentMonthlyUnits) return;
+
+    const doc = new jsPDF();
+    const report = apartmentMonthlyUnits;
+    const title = 'Monthly House Report';
+    const period = `${selectedMonth}/${selectedYear}`;
+
+    // Header band
+    doc.setFillColor(79, 70, 229);
+    doc.rect(0, 0, doc.internal.pageSize.getWidth(), 24, 'F');
+    doc.setTextColor(255);
+    doc.setFontSize(13);
+    doc.text('Rent Management System', 14, 11);
+    doc.setFontSize(17);
+    doc.text(title, 14, 19);
+
+    // Meta
+    const metaY = 30;
+    doc.setTextColor(31, 41, 55);
+    doc.setFontSize(11);
+    doc.text(report.apartment.name || 'Apartment', 14, metaY);
+
+    doc.setFontSize(9);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Period: ${period}`, 14, metaY + 6);
+    doc.text(
+      `Generated: ${new Date().toLocaleDateString()}`,
+      14,
+      metaY + 12
+    );
+
+    // Main table
+    const tableStartY = metaY + 18;
+    const body = report.units.map((unit) => ([
+      unit.houseNumber,
+      unit.tenantName || '—',
+      (unit.rentAmount || 0).toLocaleString(),
+      (unit.totalExpected || 0).toLocaleString(),
+      (unit.totalPaid || 0).toLocaleString(),
+      (unit.totalDeficit || 0).toLocaleString(),
+      unit.isCleared ? 'Cleared' : 'Due'
+    ]));
+
+    autoTable(doc, {
+      startY: tableStartY,
+      head: [['House', 'Tenant', 'Rent', 'Expected', 'Paid', 'Due', 'Status']],
+      body,
+      headStyles: {
+        fillColor: [79, 70, 229],
+        textColor: 255,
+        fontStyle: 'bold'
+      },
+      styles: {
+        fontSize: 8,
+        cellPadding: 2.5,
+        textColor: [31, 41, 55]
+      },
+      alternateRowStyles: {
+        fillColor: [248, 250, 252]
+      },
+      columnStyles: {
+        0: { cellWidth: 18 },
+        1: { cellWidth: 40 },
+        2: { cellWidth: 20, halign: 'right' },
+        3: { cellWidth: 22, halign: 'right' },
+        4: { cellWidth: 22, halign: 'right' },
+        5: { cellWidth: 22, halign: 'right' },
+        6: { cellWidth: 20 }
+      }
+    });
+
+    // Summary block
+    const afterTableY = doc.lastAutoTable ? doc.lastAutoTable.finalY + 10 : tableStartY + 10;
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const needsNewPage = pageHeight - afterTableY < 70;
+
+    if (needsNewPage) {
+      doc.addPage();
+    }
+
+    const summaryTitleY = needsNewPage ? 24 : afterTableY;
+    const summaryTableY = summaryTitleY + 6;
+
+    doc.setFontSize(11);
+    doc.setTextColor(30, 64, 175);
+    doc.text('Summary', 14, summaryTitleY);
+
+    autoTable(doc, {
+      startY: summaryTableY,
+      head: [['Metric', 'Amount (KSh)']],
+      body: [
+        ['Total Expected', report.summary.totalExpected.toLocaleString()],
+        ['Total Collected', report.summary.totalPaid.toLocaleString()],
+        ['Total Deficit', report.summary.totalDeficit.toLocaleString()]
+      ],
+      theme: 'grid',
+      headStyles: {
+        fillColor: [79, 70, 229],
+        textColor: 255,
+        fontStyle: 'bold'
+      },
+      styles: {
+        fontSize: 9,
+        cellPadding: 4,
+        textColor: [15, 23, 42]
+      },
+      columnStyles: {
+        0: { fontStyle: 'bold', cellWidth: 70 },
+        1: { halign: 'right' }
+      }
+    });
+
+    // Insights / notes
+    const notesStartY = (doc.lastAutoTable ? doc.lastAutoTable.finalY : summaryTableY) + 10;
+    const totalUnits = report.units.length;
+    const clearedUnits = report.units.filter((u) => u.isCleared).length;
+    const dueUnitRecords = report.units.filter((u) => !u.isCleared && (u.totalDeficit || 0) > 0);
+    const dueUnits = dueUnitRecords.length;
+
+    const notes = [];
+    notes.push(
+      `This report summarizes rent performance for ${totalUnits} houses in ${report.apartment.name} for ${period}.`
+    );
+
+    if (clearedUnits > 0) {
+      notes.push(
+        `${clearedUnits} house(s) are fully cleared for this period.`
+      );
+    }
+
+    if (dueUnits > 0 && report.summary.totalDeficit > 0) {
+      notes.push(
+        `${dueUnits} house(s) still have outstanding balances, contributing to the total deficit shown above.`
+      );
+
+      const detailed = dueUnitRecords.slice(0, 5).map((u) => {
+        const tenantLabel = u.tenantName ? ` (${u.tenantName})` : '';
+        const deficit = u.totalDeficit || 0;
+        return `House ${u.houseNumber}${tenantLabel}: Due KSh ${deficit.toLocaleString()}.`;
+      });
+
+      if (detailed.length > 0) {
+        notes.push(
+          `Key outstanding cases: ${detailed.join(' ')}`
+        );
+      }
+    } else if (report.summary.totalDeficit === 0 && report.summary.totalPaid >= report.summary.totalExpected) {
+      notes.push(
+        `All rent for this period has been fully collected; there are no outstanding balances.`
+      );
+    }
+
+    notes.push(
+      `Any advance payments or adjustments are reflected in individual house balances where applicable.`
+    );
+    notes.push(
+      `Caretaker or management houses (if configured in the apartment settings) may be excluded from billing totals.`
+    );
+
+    // Notes heading
+    doc.setFontSize(9);
+    doc.setTextColor(100, 116, 139);
+    doc.text('Notes', 14, notesStartY);
+
+    // Render each note as its own paragraph for readability
+    doc.setFontSize(8.5);
+    const maxWidth = doc.internal.pageSize.getWidth() - 28;
+    let currentY = notesStartY + 5;
+
+    notes.forEach((note, index) => {
+      if (!note) return;
+      const wrappedLines = doc.splitTextToSize(note, maxWidth);
+      if (index > 0) {
+        currentY += 3; // extra spacing between paragraphs
+      }
+      doc.text(wrappedLines, 14, currentY);
+      currentY += wrappedLines.length * 4;
+    });
+
+    // Footer
+    const pageCount = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.setFontSize(8);
+      doc.setTextColor(148, 163, 184);
+      const footerY = doc.internal.pageSize.getHeight() - 10;
+      doc.text(
+        `Generated by Rent Management System • ${new Date().toLocaleString()}`,
+        14,
+        footerY
+      );
+      const pageLabel = `Page ${i} of ${pageCount}`;
+      const textWidth = doc.getTextWidth(pageLabel);
+      doc.text(pageLabel, doc.internal.pageSize.getWidth() - 14 - textWidth, footerY);
+    }
+
+    doc.save(
+      `apartment-houses-${report.apartment.name}-${selectedMonth}-${selectedYear}.pdf`
+    );
+  };
+
   const exportReport = (format) => {
     let data = [];
     let filename = 'report';
@@ -177,19 +403,51 @@ const Reports = () => {
           'House': b.house?.houseNumber || 'N/A',
           'Outstanding Balance': formatCurrency(b.currentBalance)
         }));
+        // Add totals row
+        data.push({
+          'Tenant': 'TOTAL',
+          'Apartment': '',
+          'House': '',
+          'Outstanding Balance': formatCurrency(outstandingBalances.totalOutstanding)
+        });
         filename = 'outstanding-balances';
         title = 'Outstanding Balances';
         break;
       case 'revenue':
         if (!revenueByApartment) return;
-        data = revenueByApartment.apartments.map(a => ({
-          'Apartment': a.apartmentName,
-          'Revenue': formatCurrency(a.revenue),
-          'Late Fees': formatCurrency(a.lateFees),
-          'Total': formatCurrency(a.total),
-          'Payments': a.paymentCount,
-          'Tenants': a.tenantCount
-        }));
+        {
+          const balanceMap = buildApartmentBalanceMap();
+          let totalOutstanding = 0;
+          let totalOverpaid = 0;
+
+          data = revenueByApartment.apartments.map(a => {
+            const b = balanceMap[a.apartmentName] || { outstanding: 0, overpaid: 0 };
+            totalOutstanding += b.outstanding;
+            totalOverpaid += b.overpaid;
+            return {
+              'Apartment': a.apartmentName,
+              'Revenue': formatCurrency(a.revenue),
+              'Late Fees': formatCurrency(a.lateFees),
+              'Total Collected': formatCurrency(a.total),
+              'Outstanding': formatCurrency(b.outstanding),
+              'Overpaid': formatCurrency(b.overpaid),
+              'Payments': a.paymentCount,
+              'Tenants': a.tenantCount
+            };
+          });
+
+          // Add totals row
+          data.push({
+            'Apartment': 'TOTAL',
+            'Revenue': formatCurrency(revenueByApartment.totalRevenue),
+            'Late Fees': '',
+            'Total Collected': formatCurrency(revenueByApartment.totalRevenue),
+            'Outstanding': formatCurrency(totalOutstanding),
+            'Overpaid': formatCurrency(totalOverpaid),
+            'Payments': '',
+            'Tenants': ''
+          });
+        }
         filename = 'revenue-by-apartment';
         title = 'Revenue by Apartment';
         break;
@@ -197,6 +455,7 @@ const Reports = () => {
         if (!tenantLedger) return;
         data = tenantLedger.payments.map(p => ({
           'Date': new Date(p.paymentDate).toLocaleDateString(),
+          'House': p.house?.houseNumber || p.houseNumber || 'N/A',
           'Expected': formatCurrency(p.expectedAmount || p.amount),
           'Paid': formatCurrency(p.paidAmount || p.amount),
           'Deficit': formatCurrency(p.deficit || 0),
@@ -204,13 +463,24 @@ const Reports = () => {
           'Status': p.status,
           'Method': p.paymentMethod
         }));
+        // Add summary totals row
+        data.push({
+          'Date': '',
+          'House': 'TOTAL',
+          'Expected': formatCurrency(tenantLedger.summary.totalExpected),
+          'Paid': formatCurrency(tenantLedger.summary.totalPaid),
+          'Deficit': formatCurrency(tenantLedger.summary.totalDeficit),
+          'Late Fee': '',
+          'Status': '',
+          'Method': ''
+        });
         filename = `tenant-ledger-${tenantLedger.tenant.name}`;
         title = `Tenant Ledger - ${tenantLedger.tenant.name}`;
         break;
       case 'apartment-units':
         if (!apartmentMonthlyUnits) return;
         data = apartmentMonthlyUnits.units.map((unit) => ({
-          Unit: unit.houseNumber,
+          House: unit.houseNumber,
           Tenant: unit.tenantName || '—',
           Rent: formatCurrency(unit.rentAmount),
           Expected: formatCurrency(unit.totalExpected),
@@ -218,8 +488,18 @@ const Reports = () => {
           Due: formatCurrency(unit.totalDeficit),
           Status: unit.isCleared ? 'Cleared' : 'Due',
         }));
-        filename = `apartment-units-${apartmentMonthlyUnits.apartment.name}-${selectedMonth}-${selectedYear}`;
-        title = `Monthly Units - ${apartmentMonthlyUnits.apartment.name} (${selectedMonth}/${selectedYear})`;
+        // Add totals row using summary
+        data.push({
+          House: 'TOTAL',
+          Tenant: '',
+          Rent: '',
+          Expected: formatCurrency(apartmentMonthlyUnits.summary.totalExpected),
+          Paid: formatCurrency(apartmentMonthlyUnits.summary.totalPaid),
+          Due: formatCurrency(apartmentMonthlyUnits.summary.totalDeficit),
+          Status: 'Summary',
+        });
+        filename = `apartment-houses-${apartmentMonthlyUnits.apartment.name}-${selectedMonth}-${selectedYear}`;
+        title = `Monthly Houses - ${apartmentMonthlyUnits.apartment.name} (${selectedMonth}/${selectedYear})`;
         break;
     }
 
@@ -229,6 +509,12 @@ const Reports = () => {
     }
 
     if (format === 'pdf') {
+      // Use a richer, domain-specific PDF for apartment units
+      if (activeTab === 'apartment-units') {
+        exportApartmentUnitsPDF();
+        return;
+      }
+
       const columns = Object.keys(data[0] || {}).map(key => ({
         key,
         label: key.charAt(0).toUpperCase() + key.slice(1).replace(/([A-Z])/g, ' $1')
@@ -243,143 +529,173 @@ const Reports = () => {
 
   return (
     <div className="reports-page">
-      <div className="page-header">
-        <h1>Reports & Analytics</h1>
+      <div className="page-header reports-header-hero">
+        <div className="reports-header-text">
+          <h1>Reports & Analytics</h1>
+          <p className="reports-subtitle">
+            Slice your data by time, building, and tenant, then export polished PDFs for stakeholders.
+          </p>
+        </div>
         <div className="date-filters">
-          <input
-            type="date"
-            value={startDate}
-            onChange={(e) => setStartDate(e.target.value)}
-            placeholder="Start Date"
-            className="date-input"
-          />
-          <span>to</span>
-          <input
-            type="date"
-            value={endDate}
-            onChange={(e) => setEndDate(e.target.value)}
-            placeholder="End Date"
-            className="date-input"
-          />
-        </div>
-      </div>
-
-      <div className="reports-tabs">
-        <button
-          className={activeTab === 'income' ? 'active' : ''}
-          onClick={() => setActiveTab('income')}
-        >
-          Income Statement
-        </button>
-        <button
-          className={activeTab === 'outstanding' ? 'active' : ''}
-          onClick={() => setActiveTab('outstanding')}
-        >
-          Outstanding Balances
-        </button>
-        <button
-          className={activeTab === 'revenue' ? 'active' : ''}
-          onClick={() => setActiveTab('revenue')}
-        >
-          Revenue by Apartment
-        </button>
-        <button
-          className={activeTab === 'ledger' ? 'active' : ''}
-          onClick={() => setActiveTab('ledger')}
-        >
-          Tenant Ledger
-        </button>
-        <button
-          className={activeTab === 'apartment-units' ? 'active' : ''}
-          onClick={() => setActiveTab('apartment-units')}
-        >
-          Monthly Units by Apartment
-        </button>
-      </div>
-
-      <div className="report-filters">
-        {activeTab === 'income' && (
-          <select
-            value={selectedApartment}
-            onChange={(e) => setSelectedApartment(e.target.value)}
-            className="filter-select"
-          >
-            <option value="">All Apartments</option>
-            {apartments.map(apt => (
-              <option key={apt._id} value={apt._id}>{apt.name}</option>
-            ))}
-          </select>
-        )}
-        {activeTab === 'apartment-units' && (
-          <>
-            <select
-              value={selectedApartment}
-              onChange={(e) => setSelectedApartment(e.target.value)}
-              className="filter-select"
-            >
-              <option value="">Select Apartment</option>
-              {apartments.map((apt) => (
-                <option key={apt._id} value={apt._id}>
-                  {apt.name}
-                </option>
-              ))}
-            </select>
-            <select
-              value={selectedMonth}
-              onChange={(e) => setSelectedMonth(e.target.value)}
-              className="filter-select"
-            >
-              <option value="01">January</option>
-              <option value="02">February</option>
-              <option value="03">March</option>
-              <option value="04">April</option>
-              <option value="05">May</option>
-              <option value="06">June</option>
-              <option value="07">July</option>
-              <option value="08">August</option>
-              <option value="09">September</option>
-              <option value="10">October</option>
-              <option value="11">November</option>
-              <option value="12">December</option>
-            </select>
+          <div className="date-filter-group">
+            <label>From</label>
             <input
-              type="number"
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
               className="date-input"
-              style={{ minWidth: '120px' }}
-              value={selectedYear}
-              onChange={(e) => setSelectedYear(e.target.value)}
             />
-          </>
-        )}
-        {activeTab === 'ledger' && (
-          <select
-            value={selectedTenant}
-            onChange={(e) => setSelectedTenant(e.target.value)}
-            className="filter-select"
-            required
-          >
-            <option value="">Select Tenant</option>
-            {tenants.map(tenant => (
-              <option key={tenant._id} value={tenant._id}>
-                {tenant.firstName} {tenant.lastName}
-              </option>
-            ))}
-          </select>
-        )}
-        <div className="export-buttons">
-          <button className="btn-export" onClick={() => exportReport('pdf')}>
-            📄 PDF
-          </button>
-          <button className="btn-export" onClick={() => exportReport('excel')}>
-            📊 Excel
-          </button>
-          <button className="btn-export" onClick={() => exportReport('csv')}>
-            📋 CSV
-          </button>
+          </div>
+          <div className="date-filter-group">
+            <label>To</label>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              className="date-input"
+            />
+          </div>
         </div>
       </div>
 
-      <div className="report-content">
+      <div className="reports-layout">
+        <aside className="reports-sidebar">
+          <div className="reports-tabs-vertical">
+            <button
+              className={activeTab === 'income' ? 'active' : ''}
+              onClick={() => setActiveTab('income')}
+            >
+              <span className="tab-title">Income Statement</span>
+              <span className="tab-caption">Revenue vs expenses</span>
+            </button>
+            <button
+              className={activeTab === 'outstanding' ? 'active' : ''}
+              onClick={() => setActiveTab('outstanding')}
+            >
+              <span className="tab-title">Outstanding Balances</span>
+              <span className="tab-caption">Who still owes what</span>
+            </button>
+            <button
+              className={activeTab === 'revenue' ? 'active' : ''}
+              onClick={() => setActiveTab('revenue')}
+            >
+              <span className="tab-title">Revenue by Apartment</span>
+              <span className="tab-caption">Building-level performance</span>
+            </button>
+            <button
+              className={activeTab === 'ledger' ? 'active' : ''}
+              onClick={() => setActiveTab('ledger')}
+            >
+              <span className="tab-title">Tenant Ledger</span>
+              <span className="tab-caption">Payment history by tenant</span>
+            </button>
+            <button
+              className={activeTab === 'apartment-units' ? 'active' : ''}
+              onClick={() => setActiveTab('apartment-units')}
+            >
+              <span className="tab-title">Monthly Houses</span>
+              <span className="tab-caption">Unit-level collections</span>
+            </button>
+          </div>
+
+          <div className="reports-sidebar-footer">
+            <div className="reports-hint">
+              <span className="dot-live" />
+              Filters and exports adapt to the selected report.
+            </div>
+          </div>
+        </aside>
+
+        <section className="reports-main">
+          <div className="report-filters">
+            <div className="report-filters-left">
+              {activeTab === 'income' && (
+                <select
+                  value={selectedApartment}
+                  onChange={(e) => setSelectedApartment(e.target.value)}
+                  className="filter-select"
+                >
+                  <option value="">All Apartments</option>
+                  {apartments.map((apt) => (
+                    <option key={apt._id} value={apt._id}>
+                      {apt.name}
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              {activeTab === 'apartment-units' && (
+                <>
+                  <select
+                    value={selectedApartment}
+                    onChange={(e) => setSelectedApartment(e.target.value)}
+                    className="filter-select"
+                  >
+                    <option value="">Select Apartment</option>
+                    {apartments.map((apt) => (
+                      <option key={apt._id} value={apt._id}>
+                        {apt.name}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={selectedMonth}
+                    onChange={(e) => setSelectedMonth(e.target.value)}
+                    className="filter-select"
+                  >
+                    <option value="01">January</option>
+                    <option value="02">February</option>
+                    <option value="03">March</option>
+                    <option value="04">April</option>
+                    <option value="05">May</option>
+                    <option value="06">June</option>
+                    <option value="07">July</option>
+                    <option value="08">August</option>
+                    <option value="09">September</option>
+                    <option value="10">October</option>
+                    <option value="11">November</option>
+                    <option value="12">December</option>
+                  </select>
+                  <input
+                    type="number"
+                    className="date-input year-input"
+                    value={selectedYear}
+                    onChange={(e) => setSelectedYear(e.target.value)}
+                  />
+                </>
+              )}
+
+              {activeTab === 'ledger' && (
+                <select
+                  value={selectedTenant}
+                  onChange={(e) => setSelectedTenant(e.target.value)}
+                  className="filter-select"
+                  required
+                >
+                  <option value="">Select Tenant</option>
+                  {tenants.map((tenant) => (
+                    <option key={tenant._id} value={tenant._id}>
+                      {tenant.firstName} {tenant.lastName}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+
+            <div className="export-buttons">
+              <button className="btn-export primary" onClick={() => exportReport('pdf')}>
+                📄 Export PDF
+              </button>
+              <button className="btn-export" onClick={() => exportReport('excel')}>
+                📊 Excel
+              </button>
+              <button className="btn-export" onClick={() => exportReport('csv')}>
+                📋 CSV
+              </button>
+            </div>
+          </div>
+
+          <div className="report-content">
         {loading ? (
           <LoadingSpinner />
         ) : (
@@ -446,10 +762,19 @@ const Reports = () => {
             {activeTab === 'outstanding' && outstandingBalances && (
               <div className="outstanding-balances">
                 <h2>Outstanding Balances</h2>
-                <div className="summary-card">
-                  <h3>Total Outstanding</h3>
-                  <p className="large-amount">{formatCurrency(outstandingBalances.totalOutstanding)}</p>
-                  <p className="sub-text">{outstandingBalances.tenantCount} tenants with outstanding balances</p>
+                <div className="summary-grid">
+                  <div className="summary-card">
+                    <h3>Total Outstanding</h3>
+                    <p className="large-amount">{formatCurrency(outstandingBalances.totalOutstanding)}</p>
+                    <p className="sub-text">{outstandingBalances.tenantCount} tenants with outstanding balances</p>
+                  </div>
+                  {outstandingBalances.byApartment && outstandingBalances.byApartment.map((apt, idx) => (
+                    <div key={idx} className="summary-card apartment-summary">
+                      <h3>{apt.apartmentName}</h3>
+                      <p className="medium-amount">{formatCurrency(apt.totalOutstanding)}</p>
+                      <p className="sub-text">{apt.tenantCount} tenants</p>
+                    </div>
+                  ))}
                 </div>
 
                 <div className="balances-table">
@@ -560,6 +885,7 @@ const Reports = () => {
                         <thead>
                           <tr>
                             <th>Date</th>
+                            <th>House</th>
                             <th>Expected</th>
                             <th>Paid</th>
                             <th>Deficit</th>
@@ -572,6 +898,7 @@ const Reports = () => {
                           {tenantLedger.payments.map((payment) => (
                             <tr key={payment._id}>
                               <td>{new Date(payment.paymentDate).toLocaleDateString()}</td>
+                              <td>{payment.house?.houseNumber || payment.houseNumber || 'N/A'}</td>
                               <td>{formatCurrency(payment.expectedAmount || payment.amount)}</td>
                               <td>{formatCurrency(payment.paidAmount || payment.amount)}</td>
                               <td>{formatCurrency(payment.deficit || 0)}</td>
@@ -607,14 +934,30 @@ const Reports = () => {
                 ) : apartmentMonthlyUnits ? (
                   <div className="apartment-units-report">
                     <h2>
-                      Monthly Unit Report - {apartmentMonthlyUnits.apartment.name}{' '}
+                      Monthly House Report - {apartmentMonthlyUnits.apartment.name}{' '}
                       ({selectedMonth}/{selectedYear})
                     </h2>
+                    
+                    <div className="summary-grid monthly-summary">
+                      <div className="summary-card">
+                        <h3>Total Expected</h3>
+                        <p className="medium-amount">{formatCurrency(apartmentMonthlyUnits.summary.totalExpected)}</p>
+                      </div>
+                      <div className="summary-card">
+                        <h3>Total Paid</h3>
+                        <p className="medium-amount success">{formatCurrency(apartmentMonthlyUnits.summary.totalPaid)}</p>
+                      </div>
+                      <div className="summary-card">
+                        <h3>Total Outstanding</h3>
+                        <p className="medium-amount danger">{formatCurrency(apartmentMonthlyUnits.summary.totalDeficit)}</p>
+                      </div>
+                    </div>
+
                     <div className="balances-table">
                       <table>
                         <thead>
                           <tr>
-                            <th>Unit</th>
+                            <th>House</th>
                             <th>Tenant</th>
                             <th>Rent</th>
                             <th>Expected</th>
@@ -664,6 +1007,8 @@ const Reports = () => {
             )}
           </>
         )}
+          </div>
+        </section>
       </div>
     </div>
   );

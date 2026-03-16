@@ -22,13 +22,13 @@ ChartJS.register(
   Filler
 );
 
-const RevenueChart = ({ data, title = 'Revenue Trend' }) => {
+const RevenueChart = ({ data, title = 'Revenue Trend', showCollectionRate = false }) => {
   const chartData = {
     labels: data.map(item => item.label),
     datasets: [
       {
         label: 'Revenue (KSh)',
-        data: data.map(item => item.value),
+        data: data.map(item => item.revenue ?? item.value),
         borderColor: 'rgb(37, 99, 235)',
         backgroundColor: 'rgba(37, 99, 235, 0.1)',
         fill: true,
@@ -37,8 +37,27 @@ const RevenueChart = ({ data, title = 'Revenue Trend' }) => {
         pointHoverRadius: 6,
         pointBackgroundColor: 'rgb(37, 99, 235)',
         pointBorderColor: '#fff',
-        pointBorderWidth: 2
-      }
+        pointBorderWidth: 2,
+        yAxisID: 'y'
+      },
+      ...(showCollectionRate
+        ? [
+            {
+              label: 'Collection Rate (%)',
+              data: data.map(item => item.collectionRate ?? 0),
+              borderColor: 'rgb(16, 185, 129)',
+              backgroundColor: 'rgba(16, 185, 129, 0.08)',
+              fill: false,
+              tension: 0.4,
+              pointRadius: 3,
+              pointHoverRadius: 5,
+              pointBackgroundColor: 'rgb(16, 185, 129)',
+              pointBorderColor: '#fff',
+              pointBorderWidth: 2,
+              yAxisID: 'y1'
+            }
+          ]
+        : [])
     ]
   };
 
@@ -78,6 +97,20 @@ const RevenueChart = ({ data, title = 'Revenue Trend' }) => {
           color: 'rgba(0, 0, 0, 0.05)'
         }
       },
+      y1: showCollectionRate
+        ? {
+            position: 'right',
+            beginAtZero: true,
+            ticks: {
+              callback: function (value) {
+                return value + '%';
+              }
+            },
+            grid: {
+              drawOnChartArea: false
+            }
+          }
+        : undefined,
       x: {
         grid: {
           display: false

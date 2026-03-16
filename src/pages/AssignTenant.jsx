@@ -127,9 +127,9 @@ const AssignTenant = () => {
   
   // Filter by assignment status
   if (tenantFilter === 'unassigned') {
-    filteredTenants = filteredTenants.filter(tenant => !tenant.house);
+    filteredTenants = filteredTenants.filter(tenant => !tenant.houses || tenant.houses.length === 0);
   } else if (tenantFilter === 'assigned') {
-    filteredTenants = filteredTenants.filter(tenant => tenant.house);
+    filteredTenants = filteredTenants.filter(tenant => tenant.houses && tenant.houses.length > 0);
   }
   
   // Sort tenants
@@ -158,7 +158,7 @@ const AssignTenant = () => {
         <div className="header-content">
           <h1>Assign Tenant</h1>
           {house && (
-            <p className="subtitle">Select or add a tenant for Unit {house.houseNumber}</p>
+            <p className="subtitle">Select or add a tenant for House {house.houseNumber}</p>
           )}
         </div>
         <div className="header-actions">
@@ -176,7 +176,7 @@ const AssignTenant = () => {
           <div className="quick-add-tenant-section">
             <div className="card-full">
               <h2>Quick Add Tenant</h2>
-              <p>Fill in the details to create and assign a new tenant to this unit.</p>
+              <p>Fill in the details to create and assign a new tenant to this house.</p>
               
               <form onSubmit={handleQuickAddTenant} className="quick-add-form">
                 <div className="form-row-full">
@@ -287,8 +287,8 @@ const AssignTenant = () => {
                   className="tenant-filter-select-full"
                 >
                   <option value="all">All Tenants ({tenants.length})</option>
-                  <option value="unassigned">Unassigned ({tenants.filter(t => !t.house).length})</option>
-                  <option value="assigned">Already Assigned ({tenants.filter(t => t.house).length})</option>
+                  <option value="unassigned">Unassigned ({tenants.filter(t => !t.houses || t.houses.length === 0).length})</option>
+                  <option value="assigned">Already Assigned ({tenants.filter(t => t.houses && t.houses.length > 0).length})</option>
                 </select>
                 <select
                   value={tenantSort}
@@ -319,12 +319,8 @@ const AssignTenant = () => {
                   return (
                     <div 
                       key={tenant._id} 
-                      className={`tenant-card-full ${isAssigned ? 'tenant-assigned' : 'tenant-available'}`}
-                      onClick={() => {
-                        if (!isAssigned) {
-                          handleAssignTenant(tenant._id);
-                        }
-                      }}
+                      className="tenant-card-full tenant-available"
+                      onClick={() => handleAssignTenant(tenant._id)}
                     >
                       <div className="tenant-card-content">
                         <div className="tenant-avatar-large">
@@ -333,8 +329,8 @@ const AssignTenant = () => {
                         <div className="tenant-info-full">
                           <div className="tenant-name-full">
                             {tenant.firstName} {tenant.lastName}
-                            {isAssigned && (
-                              <span className="assigned-badge-full">Already Assigned</span>
+                            {tenant.houses && tenant.houses.length > 0 && (
+                              <span className="assigned-badge-full">Assign More Units</span>
                             )}
                           </div>
                           <div className="tenant-contact-full">
@@ -347,24 +343,22 @@ const AssignTenant = () => {
                               {tenant.phone}
                             </span>
                           </div>
-                          {tenant.house && (
+                          {tenant.houses && tenant.houses.length > 0 && (
                             <div className="tenant-current-unit-full">
-                              Currently assigned to: Unit {tenant.house?.houseNumber || 'N/A'}
+                              Currently assigned to: {tenant.houses.map(h => `House ${h.houseNumber}`).join(', ')}
                             </div>
                           )}
                         </div>
-                        {!isAssigned && (
-                          <button 
-                            className="btn-assign-tenant-full"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleAssignTenant(tenant._id);
-                            }}
-                            disabled={submitting}
-                          >
-                            Assign →
-                          </button>
-                        )}
+                        <button 
+                          className="btn-assign-tenant-full"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleAssignTenant(tenant._id);
+                          }}
+                          disabled={submitting}
+                        >
+                          Assign →
+                        </button>
                       </div>
                     </div>
                   );

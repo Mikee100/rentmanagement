@@ -189,7 +189,7 @@ const Expenses = () => {
         <div className="expense-summary">
           <div className="summary-card">
             <h3>Total Expenses</h3>
-            <p className="summary-value">KSh {summary.total.toLocaleString()}</p>
+            <p className="summary-value">KSh {(summary.total || 0).toLocaleString()}</p>
             <p className="summary-count">{summary.count} expenses</p>
           </div>
           {summary.byCategory && Object.keys(summary.byCategory).length > 0 && (
@@ -199,7 +199,7 @@ const Expenses = () => {
                 {Object.entries(summary.byCategory).map(([category, amount]) => (
                   <div key={category} className="category-item">
                     <span className="category-name">{category.replace('_', ' ')}</span>
-                    <span className="category-amount">KSh {amount.toLocaleString()}</span>
+                    <span className="category-amount">KSh {(amount || 0).toLocaleString()}</span>
                   </div>
                 ))}
               </div>
@@ -277,7 +277,7 @@ const Expenses = () => {
                 </td>
                 <td>{expense.apartment?.name || 'N/A'}</td>
                 <td>{expense.house?.houseNumber || 'N/A'}</td>
-                <td><strong>KSh {expense.amount.toLocaleString()}</strong></td>
+                <td><strong>KSh {(expense.amount || 0).toLocaleString()}</strong></td>
                 <td>{expense.vendor || 'N/A'}</td>
                 <td>{expense.paymentMethod.replace('_', ' ')}</td>
                 <td>

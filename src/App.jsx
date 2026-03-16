@@ -89,7 +89,7 @@ function App() {
                         <Route path="/apartments" element={<Apartments />} />
                         <Route path="/apartments/:id" element={<ApartmentDetail />} />
                         <Route path="/assign-tenant/:houseId" element={<AssignTenant />} />
-                        <Route path="/units/:houseId" element={<UnitDetail />} />
+                        <Route path="/houses/:houseId" element={<UnitDetail />} />
                         <Route path="/tenants" element={<Tenants />} />
                         <Route path="/tenants/:id" element={<TenantDetail />} />
                         <Route path="/payments" element={<Payments />} />

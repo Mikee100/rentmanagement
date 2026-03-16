@@ -1342,3 +1342,225 @@
     max-height: 300px;
   }
 }
+/* Settings Tab Styles */
+.settings-tab-view {
+  animation: fadeIn 0.3s ease-out;
+}
+
+.settings-sections {
+  display: flex;
+  flex-direction: column;
+  gap: 2.5rem;
+  margin-top: 1rem;
+}
+
+.settings-section h4 {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-bottom: 0.5rem;
+}
+
+.settings-help-text {
+  font-size: 0.9rem;
+  color: var(--text-muted);
+  margin-bottom: 1.5rem;
+  max-width: 600px;
+  line-height: 1.5;
+}
+
+.premium-select {
+  width: 100%;
+  max-width: 400px;
+  padding: 0.8rem 1rem;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background: white;
+  font-weight: 500;
+  color: var(--text-main);
+  transition: all 0.3s ease;
+}
+
+.premium-select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 4px var(--primary-light);
+  outline: none;
+}
+
+.inline-form-premium {
+  max-width: 500px;
+}
+
+.input-with-button {
+  display: flex;
+  gap: 0.75rem;
+}
+
+.input-with-button input {
+  flex: 1;
+  padding: 0.8rem 1rem;
+  border-radius: 12px;
+  border: 1px solid var(--border-color);
+  background: white;
+  font-weight: 500;
+  transition: all 0.3s ease;
+}
+
+.input-with-button input:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 4px var(--primary-light);
+  outline: none;
+}
+
+.divider-h {
+  height: 1px;
+  background: var(--border-color);
+  width: 100%;
+}
+/* Financials Tab Sub-Header */
+.tab-sub-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 2rem;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+}
+
+.view-switcher {
+  display: flex;
+  background: var(--bg-soft);
+  padding: 0.4rem;
+  border-radius: 12px;
+  gap: 0.4rem;
+}
+
+.view-toggle-btn {
+  padding: 0.6rem 1.2rem;
+  border-radius: 9px;
+  border: none;
+  background: transparent;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 0.9rem;
+}
+
+.view-toggle-btn.active {
+  background: white;
+  color: var(--primary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
+}
+
+.collection-controls {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.period-selector {
+  display: flex;
+  gap: 0.8rem;
+}
+
+.period-selector select {
+  padding: 0.6rem 1rem;
+  border-radius: 10px;
+  border: 1px solid var(--border-color);
+  background: white;
+  font-weight: 600;
+  color: var(--text-main);
+  outline: none;
+  cursor: pointer;
+}
+
+.period-selector select:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-light);
+}
+
+/* Collection Table Styles */
+.collection-table th:first-child,
+.collection-table td:first-child {
+  width: 50px;
+  text-align: center;
+}
+
+.row-paid {
+  background: rgba(16, 185, 129, 0.03);
+  opacity: 0.9;
+}
+
+.row-paid td {
+  color: var(--text-lighter);
+}
+
+input[type="checkbox"] {
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  accent-color: var(--primary);
+}
+
+.btn-primary-sm {
+  background: var(--primary);
+  color: white;
+  border: none;
+  padding: 0.7rem 1.4rem;
+  border-radius: 10px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 0.9rem;
+}
+
+.btn-primary-sm:hover:not(:disabled) {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.btn-primary-sm:disabled {
+  background: var(--text-lighter);
+  cursor: not-allowed;
+}
+.tab-left-actions {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+}
+
+.btn-secondary-sm {
+  background: var(--bg-soft);
+  color: var(--text-main);
+  border: 1px solid var(--border-color);
+  padding: 0.6rem 1.2rem;
+  border-radius: 10px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-size: 0.9rem;
+}
+
+.btn-secondary-sm:hover {
+  background: white;
+  border-color: var(--primary);
+  color: var(--primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.row-caretaker {
+  background: rgba(99, 102, 241, 0.04);
+}
+
+.caretaker-exempt {
+  color: var(--primary);
+  font-weight: 700;
+  font-size: 0.85rem;
+  background: var(--primary-light);
+  padding: 2px 8px;
+  border-radius: 6px;
+}

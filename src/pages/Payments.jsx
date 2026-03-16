@@ -53,7 +53,7 @@ const Payments = () => {
     phoneNumber: '',
     amount: '',
     houseNumber: '',
-    month: getCurrentMonth(),
+    months: [{ month: getCurrentMonth(), year: new Date().getFullYear() }],
     year: new Date().getFullYear()
   });
   const [houseSearch, setHouseSearch] = useState('');
@@ -69,6 +69,15 @@ const Payments = () => {
     notes: ''
   });
 
+  const availableMonths = [
+    { value: '01', label: 'Jan' }, { value: '02', label: 'Feb' },
+    { value: '03', label: 'Mar' }, { value: '04', label: 'Apr' },
+    { value: '05', label: 'May' }, { value: '06', label: 'Jun' },
+    { value: '07', label: 'Jul' }, { value: '08', label: 'Aug' },
+    { value: '09', label: 'Sep' }, { value: '10', label: 'Oct' },
+    { value: '11', label: 'Nov' }, { value: '12', label: 'Dec' }
+  ];
+
   const [formData, setFormData] = useState({
     tenant: '',
     house: '',
@@ -77,7 +86,7 @@ const Payments = () => {
     dueDate: '',
     paymentMethod: 'cash',
     status: 'pending',
-    month: getCurrentMonth(),
+    months: [{ month: getCurrentMonth(), year: new Date().getFullYear() }],
     year: new Date().getFullYear(),
     notes: '',
   });
@@ -107,6 +116,10 @@ const Payments = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (formData.months.length === 0) {
+      toast.warning('Please select at least one month');
+      return;
+    }
     setSubmitting(true);
     try {
       const data = {
@@ -116,11 +129,17 @@ const Payments = () => {
       };
 
       if (selectedPayment) {
-        await paymentsAPI.update(selectedPayment._id, data);
+        // When editing, we only update the single payment record
+        const editData = {
+          ...data,
+          month: formData.months[0].month,
+          year: formData.months[0].year
+        };
+        await paymentsAPI.update(selectedPayment._id, editData);
         toast.success('Payment updated successfully');
       } else {
         await paymentsAPI.create(data);
-        toast.success('Payment created successfully');
+        toast.success(`${formData.months.length} payment(s) created successfully`);
       }
       setShowModal(false);
       resetForm();
@@ -144,7 +163,7 @@ const Payments = () => {
       dueDate: payment.dueDate ? payment.dueDate.split('T')[0] : '',
       paymentMethod: payment.paymentMethod,
       status: payment.status,
-      month: payment.month,
+      months: [{ month: payment.month, year: payment.year }],
       year: payment.year,
       notes: payment.notes || '',
     });
@@ -172,15 +191,65 @@ const Payments = () => {
 
   const handleTenantChange = (tenantId) => {
     const tenant = tenants.find((t) => t._id === tenantId);
-    if (tenant && tenant.house) {
-      setFormData({
-        ...formData,
-        tenant: tenantId,
-        house: tenant.house._id || tenant.house,
-      });
+    if (tenant) {
+      // Find all houses assigned to this tenant from the global houses array (most reliable)
+      const tenantHouses = houses.filter(h => h.tenant && (h.tenant._id === tenantId || h.tenant === tenantId));
+      
+      if (tenantHouses.length > 0) {
+        const house = tenantHouses[0];
+        setFormData({
+          ...formData,
+          tenant: tenantId,
+          house: house._id,
+          amount: (house.rentAmount * formData.months.length).toString()
+        });
+      } else if (tenant.houses && tenant.houses.length > 0) {
+        // Fallback to what's in the tenant object
+        const houseData = tenant.houses[0];
+        const houseId = houseData._id || houseData;
+        const rentAmount = houseData.rentAmount || houses.find(h => h._id === houseId)?.rentAmount || 0;
+        
+        setFormData({
+          ...formData,
+          tenant: tenantId,
+          house: houseId,
+          amount: (rentAmount * formData.months.length).toString()
+        });
+      } else {
+        setFormData({ ...formData, tenant: tenantId, house: '', amount: '' });
+      }
     } else {
-      setFormData({ ...formData, tenant: tenantId });
+      setFormData({ ...formData, tenant: tenantId, house: '', amount: '' });
     }
+  };
+
+  const handleMonthToggle = (monthValue) => {
+    const isSelected = formData.months.some(m => m.month === monthValue && m.year === formData.year);
+    let newMonths;
+    if (isSelected) {
+      newMonths = formData.months.filter(m => !(m.month === monthValue && m.year === formData.year));
+    } else {
+      newMonths = [...formData.months, { month: monthValue, year: formData.year }];
+    }
+    
+    // Sort months chronologically
+    newMonths.sort((a, b) => {
+        if (a.year !== b.year) return a.year - b.year;
+        return parseInt(a.month) - parseInt(b.month);
+    });
+
+    // Auto-calculate amount if house is selected
+    const house = houses.find(h => h._id === formData.house);
+    let newAmount = formData.amount;
+    if (house) {
+        newAmount = (house.rentAmount * newMonths.length).toString();
+    }
+
+    setFormData({
+      ...formData,
+      months: newMonths,
+      amount: newAmount
+    });
   };
 
   const resetForm = () => {
@@ -193,7 +262,7 @@ const Payments = () => {
       dueDate: '',
       paymentMethod: 'cash',
       status: 'pending',
-      month: String(currentDate.getMonth() + 1).padStart(2, '0'),
+      months: [{ month: String(currentDate.getMonth() + 1).padStart(2, '0'), year: currentDate.getFullYear() }],
       year: currentDate.getFullYear(),
       notes: '',
     });
@@ -322,8 +391,7 @@ const Payments = () => {
         phoneNumber: mpesaForm.phoneNumber,
         amount: parseFloat(mpesaForm.amount),
         houseNumber: mpesaForm.houseNumber.trim(),
-        month: mpesaForm.month,
-        year: mpesaForm.year
+        months: mpesaForm.months,
       });
 
       toast.success(`${result.data.message}\n\nPlease check your phone to complete the payment.`);
@@ -365,6 +433,27 @@ const Payments = () => {
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleMpesaMonthToggle = (monthValue) => {
+    const isSelected = mpesaForm.months.some(m => m.month === monthValue && m.year === mpesaForm.year);
+    let newMonths;
+    if (isSelected) {
+      newMonths = mpesaForm.months.filter(m => !(m.month === monthValue && m.year === mpesaForm.year));
+    } else {
+      newMonths = [...mpesaForm.months, { month: monthValue, year: mpesaForm.year }];
+    }
+    
+    // Sort months
+    newMonths.sort((a, b) => {
+        if (a.year !== b.year) return a.year - b.year;
+        return parseInt(a.month) - parseInt(b.month);
+    });
+
+    setMpesaForm({
+      ...mpesaForm,
+      months: newMonths
+    });
   };
 
   const resetReceiveForm = () => {
@@ -430,7 +519,7 @@ const Payments = () => {
                 phoneNumber: '',
                 amount: '',
                 houseNumber: '',
-                month: getCurrentMonth(),
+                months: [{ month: getCurrentMonth(), year: new Date().getFullYear() }],
                 year: new Date().getFullYear()
               });
               setShowMpesaModal(true);
@@ -566,17 +655,22 @@ const Payments = () => {
                   KSh {(payment.paidAmount || payment.amount || 0).toLocaleString()}
                   {payment.deficit > 0 && (
                     <span style={{ color: 'var(--danger)', fontSize: '0.85rem', display: 'block' }}>
-                      Deficit: KSh {payment.deficit.toLocaleString()}
+                      Deficit: KSh {(payment.deficit || 0).toLocaleString()}
+                    </span>
+                  )}
+                  {payment.overpayment > 0 && (
+                    <span style={{ color: '#8e44ad', fontSize: '0.85rem', display: 'block', fontWeight: 'bold' }}>
+                      Overpaid: KSh {(payment.overpayment || 0).toLocaleString()}
                     </span>
                   )}
                   {payment.lateFee > 0 && (
                     <span style={{ color: 'var(--danger)', fontSize: '0.85rem', display: 'block' }}>
-                      + KSh {payment.lateFee.toLocaleString()} late fee
+                      + KSh {(payment.lateFee || 0).toLocaleString()} late fee
                     </span>
                   )}
                   {payment.carriedForward > 0 && (
                     <span style={{ color: 'var(--warning)', fontSize: '0.85rem', display: 'block' }}>
-                      Carried Forward: KSh {payment.carriedForward.toLocaleString()}
+                      Carried Forward: KSh {(payment.carriedForward || 0).toLocaleString()}
                     </span>
                   )}
                 </td>
@@ -620,12 +714,23 @@ const Payments = () => {
                   </div>
                 </td>
                 <td>
-                  <span
-                    className="status-badge"
-                    style={{ backgroundColor: getStatusColor(payment.status) }}
-                  >
-                    {payment.status}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span
+                      className="status-badge"
+                      style={{ backgroundColor: getStatusColor(payment.status) }}
+                    >
+                      {payment.status}
+                    </span>
+                    {payment.isAdvance && (
+                      <span
+                        className="status-badge"
+                        style={{ backgroundColor: '#8e44ad', fontSize: '0.7rem' }}
+                        title="Payment for a future month"
+                      >
+                        ADVANCE
+                      </span>
+                    )}
+                  </div>
                 </td>
                 <td>{payment.month}/{payment.year}</td>
                 <td>
@@ -692,15 +797,48 @@ const Payments = () => {
                   <label>House</label>
                   <select
                     value={formData.house}
-                    onChange={(e) => setFormData({ ...formData, house: e.target.value })}
+                    onChange={(e) => {
+                      const hId = e.target.value;
+                      const houseObj = houses.find(h => h._id === hId);
+                      setFormData({ 
+                        ...formData, 
+                        house: hId,
+                        amount: houseObj ? (houseObj.rentAmount * formData.months.length).toString() : formData.amount
+                      });
+                    }}
                     required
+                    disabled={!formData.tenant}
                   >
                     <option value="">Select House</option>
-                    {houses.map((house) => (
-                      <option key={house._id} value={house._id}>
-                        {house.houseNumber} - {house.apartment?.name || 'N/A'} (KSh {house.rentAmount.toLocaleString()}/month)
-                      </option>
-                    ))}
+                    {formData.tenant && (() => {
+                      const tenant = tenants.find(t => t._id === formData.tenant);
+                      // Collect all possible houses either from global houses state or tenant'shouses array
+                      const globalTenantHouses = houses.filter(h => h.tenant && (h.tenant._id === formData.tenant || h.tenant === formData.tenant));
+                      const tenantObjectHouses = tenant?.houses || [];
+                      
+                      const allHouseOptions = [...globalTenantHouses];
+                      tenantObjectHouses.forEach(th => {
+                        const thId = th._id || th;
+                        if (!allHouseOptions.some(h => h._id === thId)) {
+                           const found = houses.find(h => h._id === thId);
+                           if (found) allHouseOptions.push(found);
+                           else if (th.rentAmount !== undefined) allHouseOptions.push(th); // If it's a populated object
+                        }
+                      });
+
+                      return allHouseOptions.map((house) => {
+                        const hId = house._id || house;
+                        const houseNumber = house.houseNumber || 'N/A';
+                        const apartmentName = house.apartment?.name || 'N/A';
+                        const rentAmount = house.rentAmount || 0;
+                        
+                        return (
+                          <option key={hId} value={hId}>
+                            {houseNumber} - {apartmentName} (KSh {(rentAmount).toLocaleString()}/month)
+                          </option>
+                        );
+                      });
+                    })()}
                   </select>
                 </div>
                 <div className="form-row-premium">
@@ -750,39 +888,88 @@ const Payments = () => {
                     </select>
                   </div>
                 </div>
-                <div className="form-row-premium">
-                  <div className="form-group-premium">
-                    <label>Month</label>
-                    <input
-                      type="text"
-                      value={formData.month}
-                      onChange={(e) => setFormData({ ...formData, month: e.target.value })}
-                      placeholder="01-12"
-                      required
-                    />
-                  </div>
+                <div className="month-year-selection-premium">
                   <div className="form-group-premium">
                     <label>Year</label>
-                    <input
-                      type="number"
-                      value={formData.year}
-                      onChange={(e) => setFormData({ ...formData, year: e.target.value })}
-                      required
-                    />
+                    <div className="year-selector-wrapper" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <button 
+                        type="button" 
+                        className="btn-icon-sm" 
+                        onClick={() => setFormData(prev => ({ ...prev, year: prev.year - 1 }))}
+                      >
+                        ←
+                      </button>
+                      <input
+                        type="number"
+                        value={formData.year}
+                        onChange={(e) => setFormData({ ...formData, year: parseInt(e.target.value) })}
+                        style={{ width: '80px', textAlign: 'center' }}
+                        required
+                      />
+                      <button 
+                        type="button" 
+                        className="btn-icon-sm" 
+                        onClick={() => setFormData(prev => ({ ...prev, year: prev.year + 1 }))}
+                      >
+                        →
+                      </button>
+                    </div>
                   </div>
-                  <div className="form-group-premium">
-                    <label>Status</label>
-                    <select
-                      value={formData.status}
-                      onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                    >
-                      <option value="pending">Pending</option>
-                      <option value="paid">Paid</option>
-                      <option value="overdue">Overdue</option>
-                      <option value="partial">Partial</option>
-                    </select>
+                  
+                  <div className="form-group-premium" style={{ gridColumn: 'span 2' }}>
+                    <label>Select Months {selectedPayment ? '(Read-only when editing)' : '(Multi-select allowed)'}</label>
+                    <div className="month-grid-premium" style={{ 
+                      display: 'grid', 
+                      gridTemplateColumns: 'repeat(4, 1fr)', 
+                      gap: '8px',
+                      marginTop: '8px' 
+                    }}>
+                      {availableMonths.map((m) => {
+                        const isSelected = formData.months.some(sm => sm.month === m.value && sm.year === formData.year);
+                        return (
+                          <button
+                            key={m.value}
+                            type="button"
+                            disabled={selectedPayment && !isSelected}
+                            className={`month-chip-premium ${isSelected ? 'active' : ''}`}
+                            onClick={() => handleMonthToggle(m.value)}
+                            style={{
+                              padding: '8px',
+                              borderRadius: '8px',
+                              border: '1px solid var(--border-subtle)',
+                              background: isSelected ? 'var(--primary)' : 'var(--bg-main)',
+                              color: isSelected ? 'white' : 'var(--text-main)',
+                              cursor: (selectedPayment && !isSelected) ? 'not-allowed' : 'pointer',
+                              fontSize: '0.85rem',
+                              fontWeight: isSelected ? '600' : '400',
+                              transition: 'all 0.2s ease'
+                            }}
+                          >
+                            {m.label}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
+
+                {formData.months.length > 0 && (
+                  <div className="selected-months-summary" style={{ 
+                    marginBottom: '1rem', 
+                    padding: '10px', 
+                    background: 'var(--bg-subtle)', 
+                    borderRadius: '8px',
+                    fontSize: '0.85rem',
+                    borderLeft: '4px solid var(--primary)'
+                  }}>
+                    <strong>Selected:</strong> {formData.months.map(m => `${availableMonths.find(am => am.value === m.month)?.label} ${m.year}`).join(', ')}
+                    {formData.months.length > 1 && (
+                        <div style={{ marginTop: '4px', opacity: 0.8 }}>
+                            Total of {formData.months.length} months selected.
+                        </div>
+                    )}
+                  </div>
+                )}
                 <div className="form-group-premium">
                   <label>Notes</label>
                   <textarea
@@ -849,9 +1036,9 @@ const Payments = () => {
                   <div className="house-info-card" style={{ background: 'var(--bg-main)', border: '1px solid var(--border-subtle)', borderRadius: '12px', padding: '1rem', marginBottom: '1.5rem' }}>
                     {searchedHouse.canReceivePayment ? (
                       <div style={{ fontSize: '0.9rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                        <div><strong>Unit:</strong> {searchedHouse.house.houseNumber} | {searchedHouse.house.apartment?.name}</div>
+                        <div><strong>House:</strong> {searchedHouse.house.houseNumber} | {searchedHouse.house.apartment?.name}</div>
                         <div><strong>Tenant:</strong> {searchedHouse.house.tenant?.firstName} {searchedHouse.house.tenant?.lastName}</div>
-                        <div style={{ color: 'var(--primary)', fontWeight: '700' }}><strong>Rent:</strong> KSh {searchedHouse.house.rentAmount.toLocaleString()}</div>
+                        <div style={{ color: 'var(--primary)', fontWeight: '700' }}><strong>Rent:</strong> KSh {(searchedHouse.house.rentAmount || 0).toLocaleString()}</div>
                       </div>
                     ) : (
                       <div style={{ color: 'var(--danger)', padding: '0.5rem', textAlign: 'center', fontSize: '0.9rem', fontWeight: '600' }}>
@@ -979,26 +1166,82 @@ const Payments = () => {
                     required
                   />
                 </div>
-                <div className="form-row-premium">
-                  <div className="form-group-premium">
-                    <label>Month</label>
-                    <input
-                      type="text"
-                      value={mpesaForm.month}
-                      onChange={(e) => setMpesaForm({ ...mpesaForm, month: e.target.value })}
-                      required
-                    />
-                  </div>
+                <div className="month-year-selection-premium">
                   <div className="form-group-premium">
                     <label>Year</label>
-                    <input
-                      type="number"
-                      value={mpesaForm.year}
-                      onChange={(e) => setMpesaForm({ ...mpesaForm, year: e.target.value })}
-                      required
-                    />
+                    <div className="year-selector-wrapper" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <button 
+                        type="button" 
+                        className="btn-icon-sm" 
+                        onClick={() => setMpesaForm(prev => ({ ...prev, year: prev.year - 1 }))}
+                      >
+                        ←
+                      </button>
+                      <input
+                        type="number"
+                        value={mpesaForm.year}
+                        onChange={(e) => setMpesaForm({ ...mpesaForm, year: parseInt(e.target.value) })}
+                        style={{ width: '80px', textAlign: 'center' }}
+                        required
+                      />
+                      <button 
+                        type="button" 
+                        className="btn-icon-sm" 
+                        onClick={() => setMpesaForm(prev => ({ ...prev, year: prev.year + 1 }))}
+                      >
+                        →
+                      </button>
+                    </div>
+                  </div>
+                  
+                  <div className="form-group-premium" style={{ gridColumn: 'span 2' }}>
+                    <label>Select Months</label>
+                    <div className="month-grid-premium" style={{ 
+                      display: 'grid', 
+                      gridTemplateColumns: 'repeat(4, 1fr)', 
+                      gap: '8px',
+                      marginTop: '8px' 
+                    }}>
+                      {availableMonths.map((m) => {
+                        const isSelected = mpesaForm.months.some(sm => sm.month === m.value && sm.year === mpesaForm.year);
+                        return (
+                          <button
+                            key={m.value}
+                            type="button"
+                            className={`month-chip-premium ${isSelected ? 'active' : ''}`}
+                            onClick={() => handleMpesaMonthToggle(m.value)}
+                            style={{
+                              padding: '8px',
+                              borderRadius: '8px',
+                              border: '1px solid var(--border-subtle)',
+                              background: isSelected ? '#00A86B' : 'var(--bg-main)',
+                              color: isSelected ? 'white' : 'var(--text-main)',
+                              cursor: 'pointer',
+                              fontSize: '0.85rem',
+                              fontWeight: isSelected ? '600' : '400',
+                              transition: 'all 0.2s ease'
+                            }}
+                          >
+                            {m.label}
+                          </button>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
+
+                {mpesaForm.months.length > 0 && (
+                  <div className="selected-months-summary" style={{ 
+                    marginBottom: '1rem', 
+                    padding: '10px', 
+                    background: 'rgba(0, 168, 107, 0.1)', 
+                    borderRadius: '8px',
+                    fontSize: '0.85rem',
+                    borderLeft: '4px solid #00A86B'
+                  }}>
+                    <strong>Selected:</strong> {mpesaForm.months.map(m => `${availableMonths.find(am => am.value === m.month)?.label} ${m.year}`).join(', ')}
+                  </div>
+                )}
               </div>
               <div className="modal-premium-footer">
                 <button type="button" className="btn-secondary" onClick={() => setShowMpesaModal(false)}>
