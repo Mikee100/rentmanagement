@@ -23,6 +23,7 @@ const Reports = () => {
   const [outstandingBalances, setOutstandingBalances] = useState(null);
   const [revenueByApartment, setRevenueByApartment] = useState(null);
   const [apartmentMonthlyUnits, setApartmentMonthlyUnits] = useState(null);
+  const [apartmentsMonthly, setApartmentsMonthly] = useState(null);
   const [selectedMonth, setSelectedMonth] = useState(String(new Date().getMonth() + 1).padStart(2, '0'));
   const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
   
@@ -46,6 +47,8 @@ const Reports = () => {
       fetchTenantLedger();
     } else if (activeTab === 'apartment-units' && selectedApartment && selectedMonth && selectedYear) {
       fetchApartmentMonthlyUnits();
+    } else if (activeTab === 'apartments-monthly' && selectedMonth && selectedYear) {
+      fetchApartmentsMonthly();
     }
   }, [activeTab, startDate, endDate, selectedTenant, selectedApartment, selectedMonth, selectedYear]);
 
@@ -153,6 +156,22 @@ const Reports = () => {
     }
   };
 
+  const fetchApartmentsMonthly = async () => {
+    try {
+      setLoading(true);
+      const response = await reportsAPI.getApartmentsMonthly({
+        month: selectedMonth,
+        year: selectedYear,
+      });
+      setApartmentsMonthly(response.data);
+    } catch (error) {
+      console.error('Error fetching apartments monthly report:', error);
+      toast.error('Failed to fetch apartments monthly report');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const formatCurrency = (amount) => {
     return `KSh ${(amount || 0).toLocaleString()}`;
   };
@@ -218,12 +237,13 @@ const Reports = () => {
       (unit.totalExpected || 0).toLocaleString(),
       (unit.totalPaid || 0).toLocaleString(),
       (unit.totalDeficit || 0).toLocaleString(),
+      (unit.advanceReceived || 0).toLocaleString(),
       unit.isCleared ? 'Cleared' : 'Due'
     ]));
 
     autoTable(doc, {
       startY: tableStartY,
-      head: [['House', 'Tenant', 'Rent', 'Expected', 'Paid', 'Due', 'Status']],
+      head: [['House', 'Tenant', 'Rent', 'Expected', 'Paid', 'Due', 'Advance', 'Status']],
       body,
       headStyles: {
         fillColor: [79, 70, 229],
@@ -245,7 +265,8 @@ const Reports = () => {
         3: { cellWidth: 22, halign: 'right' },
         4: { cellWidth: 22, halign: 'right' },
         5: { cellWidth: 22, halign: 'right' },
-        6: { cellWidth: 20 }
+        6: { cellWidth: 20, halign: 'right' },
+        7: { cellWidth: 18 }
       }
     });
 
@@ -271,7 +292,8 @@ const Reports = () => {
       body: [
         ['Total Expected', report.summary.totalExpected.toLocaleString()],
         ['Total Collected', report.summary.totalPaid.toLocaleString()],
-        ['Total Deficit', report.summary.totalDeficit.toLocaleString()]
+        ['Total Deficit', report.summary.totalDeficit.toLocaleString()],
+        ['Advance Received (Future months paid now)', (report.summary.advanceReceived || 0).toLocaleString()]
       ],
       theme: 'grid',
       headStyles: {
@@ -333,6 +355,28 @@ const Reports = () => {
     notes.push(
       `Any advance payments or adjustments are reflected in individual house balances where applicable.`
     );
+    if ((report.summary.advanceReceived || 0) > 0) {
+      notes.push(
+        `Advance collections received during this period (paid for future months): KSh ${(report.summary.advanceReceived || 0).toLocaleString()}.`
+      );
+
+      const items = Array.isArray(report.summary.advanceReceivedItems)
+        ? report.summary.advanceReceivedItems
+        : [];
+      if (items.length > 0) {
+        const top = items.slice(0, 8).map((i) => {
+          const who = i.tenantName ? `${i.tenantName}` : 'Unknown tenant';
+          const houseLabel = i.houseNumber ? `House ${i.houseNumber}` : 'House';
+          const periodLabel = `${String(i.forMonth || '').padStart(2, '0')}/${i.forYear || ''}`;
+          const amt = (i.amount || 0).toLocaleString();
+          return `${houseLabel} (${who}): KSh ${amt} paid for ${periodLabel}.`;
+        });
+        notes.push(`Advance details: ${top.join(' ')}`);
+        if (items.length > top.length) {
+          notes.push(`(Showing ${top.length} of ${items.length} advance entries.)`);
+        }
+      }
+    }
     notes.push(
       `Caretaker or management houses (if configured in the apartment settings) may be excluded from billing totals.`
     );
@@ -377,6 +421,165 @@ const Reports = () => {
     doc.save(
       `apartment-houses-${report.apartment.name}-${selectedMonth}-${selectedYear}.pdf`
     );
+  };
+
+  const exportApartmentsMonthlyPDF = () => {
+    if (!apartmentsMonthly) return;
+
+    // Landscape to avoid squeezed columns
+    const doc = new jsPDF({ orientation: 'landscape' });
+    const report = apartmentsMonthly;
+    const title = 'Monthly Apartments Report';
+    const period = `${selectedMonth}/${selectedYear}`;
+
+    // Header band
+    doc.setFillColor(79, 70, 229);
+    doc.rect(0, 0, doc.internal.pageSize.getWidth(), 22, 'F');
+    doc.setTextColor(255);
+    doc.setFontSize(12);
+    doc.text('Rent Management System', 14, 9);
+    doc.setFontSize(16);
+    doc.text(`${title} (${period})`, 14, 17);
+
+    // Meta
+    const metaY = 30;
+    doc.setTextColor(31, 41, 55);
+    doc.setFontSize(10);
+    doc.text(`Generated: ${new Date().toLocaleDateString()}`, 14, metaY);
+    doc.setFontSize(9);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Apartments: ${report.apartments.length}`, 14, metaY + 6);
+
+    const rows = report.apartments.map((apt) => ([
+      apt.apartmentName || '—',
+      String(apt.housesCount || 0),
+      (apt.totalExpected || 0).toLocaleString(),
+      (apt.totalPaid || 0).toLocaleString(),
+      (apt.outstanding || 0).toLocaleString(),
+      (apt.overpaid || 0).toLocaleString(),
+      (apt.advanceReceived || 0).toLocaleString(),
+      (apt.lateFees || 0).toLocaleString(),
+      (apt.totalCollected || 0).toLocaleString(),
+      String(apt.paymentCount || 0),
+      String(apt.issues?.count || 0),
+      (apt.issues?.totalCost || 0).toLocaleString(),
+    ]));
+
+    // Totals row
+    rows.push([
+      'TOTAL',
+      String(report.totals.housesCount || 0),
+      (report.totals.totalExpected || 0).toLocaleString(),
+      (report.totals.totalPaid || 0).toLocaleString(),
+      (report.totals.outstanding || 0).toLocaleString(),
+      (report.totals.overpaid || 0).toLocaleString(),
+      (report.totals.advanceReceived || 0).toLocaleString(),
+      (report.totals.lateFees || 0).toLocaleString(),
+      (report.totals.totalCollected || 0).toLocaleString(),
+      String(report.totals.paymentCount || 0),
+      String(report.totals.issuesCount || 0),
+      (report.totals.issuesCost || 0).toLocaleString(),
+    ]);
+
+    autoTable(doc, {
+      startY: metaY + 12,
+      head: [[
+        'Apartment',
+        'Houses',
+        'Expected',
+        'Paid',
+        'Outstanding',
+        'Overpaid',
+        'Advance Received',
+        'Late Fees',
+        'Total Collected',
+        'Payments',
+        'Issues',
+        'Issue Cost'
+      ]],
+      body: rows,
+      headStyles: {
+        fillColor: [79, 70, 229],
+        textColor: 255,
+        fontStyle: 'bold'
+      },
+      styles: {
+        fontSize: 8,
+        cellPadding: 2.2,
+        textColor: [31, 41, 55],
+        overflow: 'linebreak'
+      },
+      alternateRowStyles: {
+        fillColor: [248, 250, 252]
+      },
+      columnStyles: {
+        0: { cellWidth: 40 }, // Apartment name
+        1: { cellWidth: 14, halign: 'right' },
+        2: { cellWidth: 22, halign: 'right' },
+        3: { cellWidth: 22, halign: 'right' },
+        4: { cellWidth: 22, halign: 'right' },
+        5: { cellWidth: 20, halign: 'right' },
+        6: { cellWidth: 22, halign: 'right' },
+        7: { cellWidth: 18, halign: 'right' },
+        8: { cellWidth: 24, halign: 'right' },
+        9: { cellWidth: 16, halign: 'right' },
+        10: { cellWidth: 14, halign: 'right' },
+        11: { cellWidth: 20, halign: 'right' }
+      },
+      didParseCell: (data) => {
+        // Bold totals row
+        const isTotalsRow = data.row.index === rows.length - 1;
+        if (isTotalsRow) {
+          data.cell.styles.fontStyle = 'bold';
+          data.cell.styles.fillColor = [241, 245, 249];
+        }
+      }
+    });
+
+    // Notes section
+    const afterTableY = doc.lastAutoTable ? doc.lastAutoTable.finalY + 10 : metaY + 30;
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const needsNewPage = pageHeight - afterTableY < 50;
+    if (needsNewPage) doc.addPage();
+
+    const notesY = needsNewPage ? 18 : afterTableY;
+    const notes = Array.isArray(report.notes) ? report.notes : [];
+
+    if (notes.length > 0) {
+      doc.setFontSize(11);
+      doc.setTextColor(30, 64, 175);
+      doc.text('Notes', 14, notesY);
+
+      doc.setFontSize(9);
+      doc.setTextColor(100, 116, 139);
+      const maxWidth = doc.internal.pageSize.getWidth() - 28;
+      let y = notesY + 6;
+      notes.forEach((n, idx) => {
+        const wrapped = doc.splitTextToSize(String(n), maxWidth);
+        if (idx > 0) y += 2;
+        doc.text(wrapped, 14, y);
+        y += wrapped.length * 4;
+      });
+    }
+
+    // Footer
+    const pageCount = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+      doc.setPage(i);
+      doc.setFontSize(8);
+      doc.setTextColor(148, 163, 184);
+      const footerY = doc.internal.pageSize.getHeight() - 10;
+      doc.text(
+        `Generated by Rent Management System • ${new Date().toLocaleString()}`,
+        14,
+        footerY
+      );
+      const pageLabel = `Page ${i} of ${pageCount}`;
+      const textWidth = doc.getTextWidth(pageLabel);
+      doc.text(pageLabel, doc.internal.pageSize.getWidth() - 14 - textWidth, footerY);
+    }
+
+    doc.save(`apartments-monthly-${selectedMonth}-${selectedYear}.pdf`);
   };
 
   const exportReport = (format) => {
@@ -486,6 +689,7 @@ const Reports = () => {
           Expected: formatCurrency(unit.totalExpected),
           Paid: formatCurrency(unit.totalPaid),
           Due: formatCurrency(unit.totalDeficit),
+          Advance: formatCurrency(unit.advanceReceived || 0),
           Status: unit.isCleared ? 'Cleared' : 'Due',
         }));
         // Add totals row using summary
@@ -496,10 +700,50 @@ const Reports = () => {
           Expected: formatCurrency(apartmentMonthlyUnits.summary.totalExpected),
           Paid: formatCurrency(apartmentMonthlyUnits.summary.totalPaid),
           Due: formatCurrency(apartmentMonthlyUnits.summary.totalDeficit),
+          Advance: formatCurrency(apartmentMonthlyUnits.summary.advanceReceived || 0),
           Status: 'Summary',
         });
         filename = `apartment-houses-${apartmentMonthlyUnits.apartment.name}-${selectedMonth}-${selectedYear}`;
         title = `Monthly Houses - ${apartmentMonthlyUnits.apartment.name} (${selectedMonth}/${selectedYear})`;
+        break;
+      case 'apartments-monthly':
+        if (!apartmentsMonthly) return;
+        data = apartmentsMonthly.apartments.map((apt) => ({
+          Apartment: apt.apartmentName,
+          Address: apt.address || '',
+          Houses: apt.housesCount || 0,
+          Expected: formatCurrency(apt.totalExpected || 0),
+          Paid: formatCurrency(apt.totalPaid || 0),
+          Outstanding: formatCurrency(apt.outstanding || 0),
+          Overpaid: formatCurrency(apt.overpaid || 0),
+          Advances: formatCurrency(apt.advances || 0),
+          'Advance Received': formatCurrency(apt.advanceReceived || 0),
+          Revenue: formatCurrency(apt.revenue),
+          'Late Fees': formatCurrency(apt.lateFees),
+          'Total Collected': formatCurrency(apt.totalCollected),
+          Payments: apt.paymentCount,
+          Issues: apt.issues?.count || 0,
+          'Issue Cost': formatCurrency(apt.issues?.totalCost || 0),
+        }));
+        data.push({
+          Apartment: 'TOTAL',
+          Address: '',
+          Houses: apartmentsMonthly.totals.housesCount || 0,
+          Expected: formatCurrency(apartmentsMonthly.totals.totalExpected || 0),
+          Paid: formatCurrency(apartmentsMonthly.totals.totalPaid || 0),
+          Outstanding: formatCurrency(apartmentsMonthly.totals.outstanding || 0),
+          Overpaid: formatCurrency(apartmentsMonthly.totals.overpaid || 0),
+          Advances: formatCurrency(apartmentsMonthly.totals.advances || 0),
+          'Advance Received': formatCurrency(apartmentsMonthly.totals.advanceReceived || 0),
+          Revenue: formatCurrency(apartmentsMonthly.totals.revenue),
+          'Late Fees': formatCurrency(apartmentsMonthly.totals.lateFees),
+          'Total Collected': formatCurrency(apartmentsMonthly.totals.totalCollected),
+          Payments: apartmentsMonthly.totals.paymentCount,
+          Issues: apartmentsMonthly.totals.issuesCount,
+          'Issue Cost': formatCurrency(apartmentsMonthly.totals.issuesCost),
+        });
+        filename = `apartments-monthly-${selectedMonth}-${selectedYear}`;
+        title = `Monthly Apartments Report (${selectedMonth}/${selectedYear})`;
         break;
     }
 
@@ -512,6 +756,10 @@ const Reports = () => {
       // Use a richer, domain-specific PDF for apartment units
       if (activeTab === 'apartment-units') {
         exportApartmentUnitsPDF();
+        return;
+      }
+      if (activeTab === 'apartments-monthly') {
+        exportApartmentsMonthlyPDF();
         return;
       }
 
@@ -596,6 +844,13 @@ const Reports = () => {
               <span className="tab-title">Monthly Houses</span>
               <span className="tab-caption">Unit-level collections</span>
             </button>
+            <button
+              className={activeTab === 'apartments-monthly' ? 'active' : ''}
+              onClick={() => setActiveTab('apartments-monthly')}
+            >
+              <span className="tab-title">Monthly Apartments</span>
+              <span className="tab-caption">Revenue + issues by building</span>
+            </button>
           </div>
 
           <div className="reports-sidebar-footer">
@@ -638,6 +893,35 @@ const Reports = () => {
                       </option>
                     ))}
                   </select>
+                  <select
+                    value={selectedMonth}
+                    onChange={(e) => setSelectedMonth(e.target.value)}
+                    className="filter-select"
+                  >
+                    <option value="01">January</option>
+                    <option value="02">February</option>
+                    <option value="03">March</option>
+                    <option value="04">April</option>
+                    <option value="05">May</option>
+                    <option value="06">June</option>
+                    <option value="07">July</option>
+                    <option value="08">August</option>
+                    <option value="09">September</option>
+                    <option value="10">October</option>
+                    <option value="11">November</option>
+                    <option value="12">December</option>
+                  </select>
+                  <input
+                    type="number"
+                    className="date-input year-input"
+                    value={selectedYear}
+                    onChange={(e) => setSelectedYear(e.target.value)}
+                  />
+                </>
+              )}
+
+              {activeTab === 'apartments-monthly' && (
+                <>
                   <select
                     value={selectedMonth}
                     onChange={(e) => setSelectedMonth(e.target.value)}
@@ -810,34 +1094,48 @@ const Reports = () => {
               <div className="revenue-by-apartment">
                 <h2>Revenue by Apartment</h2>
                 <div className="summary-card">
-                  <h3>Total Revenue</h3>
+                  <h3>Portfolio Revenue</h3>
                   <p className="large-amount">{formatCurrency(revenueByApartment.totalRevenue)}</p>
                 </div>
 
                 <div className="revenue-grid">
-                  {revenueByApartment.apartments.map((apt, index) => (
-                    <div key={index} className="revenue-card">
-                      <h3>{apt.apartmentName}</h3>
-                      <div className="revenue-details">
-                        <div className="revenue-row">
-                          <span>Revenue:</span>
-                          <span>{formatCurrency(apt.revenue)}</span>
+                  {(() => {
+                    const balanceMap = buildApartmentBalanceMap();
+                    return revenueByApartment.apartments.map((apt, index) => {
+                      const balance = balanceMap[apt.apartmentName] || { outstanding: 0, overpaid: 0 };
+                      return (
+                        <div key={index} className="revenue-card">
+                          <h3>{apt.apartmentName}</h3>
+                          <div className="revenue-details">
+                            <div className="revenue-row">
+                              <span>Collected Revenue:</span>
+                              <span>{formatCurrency(apt.revenue)}</span>
+                            </div>
+                            <div className="revenue-row">
+                              <span>Late Fees:</span>
+                              <span>{formatCurrency(apt.lateFees)}</span>
+                            </div>
+                            <div className="revenue-row total">
+                              <span>Total Collected:</span>
+                              <span>{formatCurrency(apt.total)}</span>
+                            </div>
+                            <div className="revenue-row">
+                              <span>Outstanding:</span>
+                              <span>{formatCurrency(balance.outstanding)}</span>
+                            </div>
+                            <div className="revenue-row">
+                              <span>Overpaid:</span>
+                              <span>{formatCurrency(balance.overpaid)}</span>
+                            </div>
+                            <div className="revenue-stats">
+                              <span>{apt.paymentCount} payments</span>
+                              <span>{apt.tenantCount} tenants</span>
+                            </div>
+                          </div>
                         </div>
-                        <div className="revenue-row">
-                          <span>Late Fees:</span>
-                          <span>{formatCurrency(apt.lateFees)}</span>
-                        </div>
-                        <div className="revenue-row total">
-                          <span>Total:</span>
-                          <span>{formatCurrency(apt.total)}</span>
-                        </div>
-                        <div className="revenue-stats">
-                          <span>{apt.paymentCount} payments</span>
-                          <span>{apt.tenantCount} tenants</span>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
+                      );
+                    });
+                  })()}
                 </div>
               </div>
             )}
@@ -963,6 +1261,7 @@ const Reports = () => {
                             <th>Expected</th>
                             <th>Paid</th>
                             <th>Due</th>
+                            <th>Advance</th>
                             <th>Status</th>
                           </tr>
                         </thead>
@@ -980,6 +1279,7 @@ const Reports = () => {
                                 <td className={due > 0 ? 'outstanding' : ''}>
                                   {formatCurrency(due)}
                                 </td>
+                                <td>{formatCurrency(unit.advanceReceived || 0)}</td>
                                 <td>
                                   <span
                                     className={
@@ -994,6 +1294,138 @@ const Reports = () => {
                               </tr>
                             );
                           })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="empty-state">
+                    <p>No data available for the selected month.</p>
+                  </div>
+                )}
+              </>
+            )}
+
+            {activeTab === 'apartments-monthly' && (
+              <>
+                {apartmentsMonthly ? (
+                  <div className="apartments-monthly-report">
+                    <h2>
+                      Monthly Apartments Report ({selectedMonth}/{selectedYear})
+                    </h2>
+
+                    <div className="summary-grid monthly-summary">
+                      <div className="summary-card">
+                        <h3>Total Collected</h3>
+                        <p className="medium-amount success">
+                          {formatCurrency(apartmentsMonthly.totals.totalCollected)}
+                        </p>
+                      </div>
+                      <div className="summary-card">
+                        <h3>Total Outstanding</h3>
+                        <p className="medium-amount danger">
+                          {formatCurrency(apartmentsMonthly.totals.outstanding || 0)}
+                        </p>
+                      </div>
+                      <div className="summary-card">
+                        <h3>Total Overpaid</h3>
+                        <p className="medium-amount">
+                          {formatCurrency(apartmentsMonthly.totals.overpaid || 0)}
+                        </p>
+                      </div>
+                      <div className="summary-card">
+                        <h3>Advance Received</h3>
+                        <p className="medium-amount">
+                          {formatCurrency(apartmentsMonthly.totals.advanceReceived || 0)}
+                        </p>
+                      </div>
+                      <div className="summary-card">
+                        <h3>Total Payments</h3>
+                        <p className="medium-amount">
+                          {(apartmentsMonthly.totals.paymentCount || 0).toLocaleString()}
+                        </p>
+                      </div>
+                      <div className="summary-card">
+                        <h3>Issues Logged</h3>
+                        <p className="medium-amount danger">
+                          {(apartmentsMonthly.totals.issuesCount || 0).toLocaleString()}
+                        </p>
+                      </div>
+                      <div className="summary-card">
+                        <h3>Issue Cost</h3>
+                        <p className="medium-amount danger">
+                          {formatCurrency(apartmentsMonthly.totals.issuesCost || 0)}
+                        </p>
+                      </div>
+                    </div>
+
+                    {Array.isArray(apartmentsMonthly.notes) && apartmentsMonthly.notes.length > 0 && (
+                      <div className="statement-section">
+                        <h3>Notes</h3>
+                        <ul style={{ margin: 0, paddingLeft: 18 }}>
+                          {apartmentsMonthly.notes.map((n, idx) => (
+                            <li key={idx} style={{ marginBottom: 6, color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
+                              {n}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    <div className="balances-table">
+                      <table>
+                        <thead>
+                          <tr>
+                            <th>Apartment</th>
+                            <th>Houses</th>
+                            <th>Expected</th>
+                            <th>Paid</th>
+                            <th>Outstanding</th>
+                            <th>Overpaid</th>
+                            <th>Advance Received</th>
+                            <th>Revenue</th>
+                            <th>Late Fees</th>
+                            <th>Total Collected</th>
+                            <th>Payments</th>
+                            <th>Issues</th>
+                            <th>Issue Cost</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {apartmentsMonthly.apartments.map((apt) => (
+                            <tr key={apt.apartmentId}>
+                              <td>{apt.apartmentName}</td>
+                              <td>{(apt.housesCount || 0).toLocaleString()}</td>
+                              <td>{formatCurrency(apt.totalExpected || 0)}</td>
+                              <td>{formatCurrency(apt.totalPaid || 0)}</td>
+                              <td className={(apt.outstanding || 0) > 0 ? 'outstanding' : ''}>
+                                {formatCurrency(apt.outstanding || 0)}
+                              </td>
+                              <td>{formatCurrency(apt.overpaid || 0)}</td>
+                              <td>{formatCurrency(apt.advanceReceived || 0)}</td>
+                              <td>{formatCurrency(apt.revenue)}</td>
+                              <td>{formatCurrency(apt.lateFees)}</td>
+                              <td>{formatCurrency(apt.totalCollected)}</td>
+                              <td>{(apt.paymentCount || 0).toLocaleString()}</td>
+                              <td>{(apt.issues?.count || 0).toLocaleString()}</td>
+                              <td>{formatCurrency(apt.issues?.totalCost || 0)}</td>
+                            </tr>
+                          ))}
+                          <tr>
+                            <td><strong>TOTAL</strong></td>
+                            <td><strong>{(apartmentsMonthly.totals.housesCount || 0).toLocaleString()}</strong></td>
+                            <td><strong>{formatCurrency(apartmentsMonthly.totals.totalExpected || 0)}</strong></td>
+                            <td><strong>{formatCurrency(apartmentsMonthly.totals.totalPaid || 0)}</strong></td>
+                            <td><strong>{formatCurrency(apartmentsMonthly.totals.outstanding || 0)}</strong></td>
+                            <td><strong>{formatCurrency(apartmentsMonthly.totals.overpaid || 0)}</strong></td>
+                            <td><strong>{formatCurrency(apartmentsMonthly.totals.advanceReceived || 0)}</strong></td>
+                            <td><strong>{formatCurrency(apartmentsMonthly.totals.revenue)}</strong></td>
+                            <td><strong>{formatCurrency(apartmentsMonthly.totals.lateFees)}</strong></td>
+                            <td><strong>{formatCurrency(apartmentsMonthly.totals.totalCollected)}</strong></td>
+                            <td><strong>{(apartmentsMonthly.totals.paymentCount || 0).toLocaleString()}</strong></td>
+                            <td><strong>{(apartmentsMonthly.totals.issuesCount || 0).toLocaleString()}</strong></td>
+                            <td><strong>{formatCurrency(apartmentsMonthly.totals.issuesCost || 0)}</strong></td>
+                          </tr>
                         </tbody>
                       </table>
                     </div>

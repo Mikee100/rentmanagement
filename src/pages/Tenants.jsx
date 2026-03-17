@@ -75,11 +75,11 @@ const Tenants = () => {
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(tenant =>
-        tenant.firstName.toLowerCase().includes(query) ||
-        tenant.lastName.toLowerCase().includes(query) ||
-        tenant.email.toLowerCase().includes(query) ||
-        tenant.phone.includes(query) ||
-        tenant.house?.houseNumber?.toLowerCase().includes(query)
+        (tenant.firstName || '').toLowerCase().includes(query) ||
+        (tenant.lastName || '').toLowerCase().includes(query) ||
+        (tenant.email || '').toLowerCase().includes(query) ||
+        (tenant.phone || '').includes(query) ||
+        (tenant.house?.houseNumber || '').toLowerCase().includes(query)
       );
     }
 
@@ -264,7 +264,7 @@ const Tenants = () => {
                   <td>
                     <div className="tenant-name-cell">
                       <div className="tenant-avatar-small">
-                        {tenant.firstName[0]}{tenant.lastName[0]}
+                        {(tenant.firstName || '?')[0]}{(tenant.lastName || '?')[0]}
                       </div>
                       <div>
                         <div className="name">{tenant.firstName} {tenant.lastName}</div>
@@ -322,7 +322,7 @@ const Tenants = () => {
             <div key={tenant._id} className="tenant-card" onClick={() => navigate(`/tenants/${tenant._id}`)}>
               <div className="card-header">
                 <div className="card-avatar">
-                  {tenant.firstName[0]}{tenant.lastName[0]}
+                  {(tenant.firstName || '?')[0]}{(tenant.lastName || '?')[0]}
                 </div>
                 <span className={`status-badge status-${tenant.status}`}>
                   {tenant.status}

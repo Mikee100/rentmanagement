@@ -169,6 +169,10 @@ export const reportsAPI = {
     const queryString = new URLSearchParams(params || {}).toString();
     return api.get(`/reports/monthly-apartment-units${queryString ? `?${queryString}` : ''}`);
   },
+  getApartmentsMonthly: (params) => {
+    const queryString = new URLSearchParams(params || {}).toString();
+    return api.get(`/reports/apartments-monthly${queryString ? `?${queryString}` : ''}`);
+  },
   getApartmentFinancialHistory: (apartmentId) => api.get(`/reports/apartment-financial-history/${apartmentId}`),
 };
 
