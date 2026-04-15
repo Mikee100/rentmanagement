@@ -27,14 +27,14 @@ const Layout = ({ children }) => {
   const navigate = useNavigate();
   const { user, logout, isSuperadmin } = useAuth();
   const isAdmin = () => user && (user.role === 'admin' || user.role === 'superadmin');
-  const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isCollapsed, setIsCollapsed] = useState(true);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
 
   useEffect(() => {
     const handleResize = () => {
       const mobile = window.innerWidth <= 768;
       setIsMobile(mobile);
-      if (mobile) setIsCollapsed(true);
+      setIsCollapsed(true);
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
@@ -45,22 +45,38 @@ const Layout = ({ children }) => {
     navigate('/login');
   };
 
-  const navItems = [
-    { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { path: '/apartments', label: 'Apartments', icon: Building2 },
-    { path: '/tenants', label: 'Tenants', icon: Users },
-    { path: '/payments', label: 'Payments', icon: CreditCard },
-    { path: '/maintenance', label: 'Maintenance', icon: Wrench },
-    { path: '/expenses', label: 'Expenses', icon: TrendingUp },
-    { path: '/reports', label: 'Reports', icon: ClipboardList },
-    ...(isAdmin() ? [
-      { path: '/equity-bank-test', label: 'Bank Integration', icon: Library }
-    ] : []),
-    ...(isSuperadmin() ? [
-      { path: '/users', label: 'User Controls', icon: UserCircle },
-      { path: '/activity-logs', label: 'Audit Logs', icon: History },
-      { path: '/paybill-config', label: 'System Setup', icon: Settings }
-    ] : []),
+  const navSections = [
+    {
+      title: 'Overview',
+      items: [
+        { path: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+      ],
+    },
+    {
+      title: 'Operations',
+      items: [
+        { path: '/apartments', label: 'Apartments', icon: Building2 },
+        { path: '/tenants', label: 'Tenants', icon: Users },
+        { path: '/payments', label: 'Payments', icon: CreditCard },
+        { path: '/maintenance', label: 'Maintenance', icon: Wrench },
+        { path: '/expenses', label: 'Expenses', icon: TrendingUp },
+        { path: '/reports', label: 'Reports', icon: ClipboardList },
+      ],
+    },
+    ...(isAdmin() ? [{
+      title: 'Integrations',
+      items: [
+        { path: '/equity-bank-test', label: 'Bank Integration', icon: Library }
+      ]
+    }] : []),
+    ...(isSuperadmin() ? [{
+      title: 'Admin',
+      items: [
+        { path: '/users', label: 'User Controls', icon: UserCircle },
+        { path: '/activity-logs', label: 'Audit Logs', icon: History },
+        { path: '/paybill-config', label: 'System Setup', icon: Settings }
+      ]
+    }] : []),
   ];
 
   return (
@@ -99,43 +115,66 @@ const Layout = ({ children }) => {
               </motion.span>
             )}
           </div>
-          <button className="collapse-toggle" onClick={() => setIsCollapsed(!isCollapsed)}>
-            {isCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
-          </button>
+          <div className="sidebar-header-actions">
+            {isMobile && !isCollapsed ? (
+              <button className="collapse-toggle" onClick={() => setIsCollapsed(true)} aria-label="Close navigation">
+                <X size={18} />
+              </button>
+            ) : (
+              <button
+                className="collapse-toggle"
+                onClick={() => setIsCollapsed(!isCollapsed)}
+                aria-label={isCollapsed ? 'Expand navigation' : 'Collapse navigation'}
+              >
+                {isCollapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
+              </button>
+            )}
+          </div>
         </div>
 
         <nav className="nav-container-modern">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = location.pathname.startsWith(item.path);
-            return (
-              <Link
-                key={item.path}
-                to={item.path}
-                className={`nav-link-modern ${isActive ? 'active' : ''}`}
-                title={isCollapsed ? item.label : ''}
-              >
-                <div className="icon-wrapper">
-                  <Icon size={20} />
-                </div>
-                {!isCollapsed && (
-                  <motion.span 
-                    initial={{ opacity: 0, x: -10 }}
-                    animate={{ opacity: 1, x: 0 }}
-                    className="label-text"
-                  >
-                    {item.label}
-                  </motion.span>
-                )}
-                {isActive && (
-                  <motion.div 
-                    layoutId="active-nav"
-                    className="active-indicator"
-                  />
-                )}
-              </Link>
-            );
-          })}
+          {navSections.map((section) => (
+            <div className="nav-section" key={section.title}>
+              {!isCollapsed && <div className="nav-section-title">{section.title}</div>}
+              <div className="nav-section-items">
+                {section.items.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = location.pathname.startsWith(item.path);
+                  return (
+                    <Link
+                      key={item.path}
+                      to={item.path}
+                      className={`nav-link-modern ${isActive ? 'active' : ''}`}
+                      title={isCollapsed ? item.label : ''}
+                      aria-current={isActive ? 'page' : undefined}
+                      onClick={() => {
+                        if (isMobile) setIsCollapsed(true);
+                      }}
+                    >
+                      <div className="icon-wrapper">
+                        <Icon size={20} />
+                      </div>
+                      {!isCollapsed && (
+                        <motion.span 
+                          initial={{ opacity: 0, x: -10 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          className="label-text"
+                        >
+                          {item.label}
+                        </motion.span>
+                      )}
+                      {isActive && (
+                        <motion.div 
+                          layoutId="active-nav"
+                          className="active-indicator"
+                        />
+                      )}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
         </nav>
 
         <div className="sidebar-footer-modern">
@@ -167,5 +206,4 @@ const Layout = ({ children }) => {
 };
 
 export default Layout;
-
 

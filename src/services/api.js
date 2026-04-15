@@ -69,7 +69,10 @@ export const housesAPI = {
 
 // Tenants API
 export const tenantsAPI = {
-  getAll: () => api.get('/tenants'),
+  getAll: (apartmentId) => {
+    const params = apartmentId ? `?apartment=${apartmentId}` : '';
+    return api.get(`/tenants${params}`);
+  },
   getById: (id) => api.get(`/tenants/${id}`),
   create: (data) => api.post('/tenants', data),
   update: (id, data) => api.put(`/tenants/${id}`, data),

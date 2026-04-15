@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { tenantsAPI, apartmentsAPI } from '../services/api';
 import { useToast } from '../components/Toast';
+import { useAuth } from '../context/AuthContext';
 import ConfirmModal from '../components/ConfirmModal';
 import LoadingSpinner from '../components/LoadingSpinner';
 import './Tenants.css';
@@ -9,6 +10,7 @@ import './Tenants.css';
 const Tenants = () => {
   const navigate = useNavigate();
   const toast = useToast();
+  const { user, isCaretaker, isSuperadmin } = useAuth();
   const [tenants, setTenants] = useState([]);
   const [apartments, setApartments] = useState([]);
   const [filteredTenants, setFilteredTenants] = useState([]);
@@ -16,6 +18,9 @@ const Tenants = () => {
   const [submitting, setSubmitting] = useState(false);
   const [viewMode, setViewMode] = useState('table'); // 'table' or 'grid'
   const [selectedApartment, setSelectedApartment] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all'); // all|active|inactive|past
+  const [assignmentFilter, setAssignmentFilter] = useState('all'); // all|assigned|unassigned
+  const [sortBy, setSortBy] = useState('name'); // name|leaseEnd
   const [searchQuery, setSearchQuery] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -39,16 +44,21 @@ const Tenants = () => {
 
   useEffect(() => {
     fetchData();
+    // Auto-select caretaker's apartment
+    if (isCaretaker() && user?.apartment?._id) {
+      setSelectedApartment(user.apartment._id);
+    }
   }, []);
 
   useEffect(() => {
     filterTenants();
-  }, [tenants, selectedApartment, searchQuery]);
+  }, [tenants, selectedApartment, statusFilter, assignmentFilter, sortBy, searchQuery]);
 
   const fetchData = async () => {
     try {
+      const apartmentId = isCaretaker() && user?.apartment?._id ? user.apartment._id : null;
       const [tenantsRes, apartmentsRes] = await Promise.all([
-        tenantsAPI.getAll(),
+        tenantsAPI.getAll(selectedApartment !== 'all' ? selectedApartment : apartmentId),
         apartmentsAPI.getAll()
       ]);
       setTenants(tenantsRes.data);
@@ -64,11 +74,25 @@ const Tenants = () => {
     let filtered = [...tenants];
 
     // Filter by apartment
-    if (selectedApartment !== 'all') {
+if (selectedApartment !== 'all') {
       filtered = filtered.filter(tenant => 
-        tenant.house?.apartment?._id === selectedApartment || 
-        tenant.house?.apartment === selectedApartment
+        tenant.houses?.some(h => 
+          h.apartment?._id === selectedApartment || 
+          h.apartment === selectedApartment
+        )
       );
+    }
+
+    // Filter by status
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter((t) => String(t.status || '').toLowerCase() === statusFilter);
+    }
+
+    // Filter by assignment
+    if (assignmentFilter === 'assigned') {
+      filtered = filtered.filter((t) => Boolean(t.house));
+    } else if (assignmentFilter === 'unassigned') {
+      filtered = filtered.filter((t) => !t.house);
     }
 
     // Filter by search query
@@ -82,6 +106,18 @@ const Tenants = () => {
         (tenant.house?.houseNumber || '').toLowerCase().includes(query)
       );
     }
+
+    // Sort
+    filtered.sort((a, b) => {
+      if (sortBy === 'leaseEnd') {
+        const aDate = a.leaseEndDate ? new Date(a.leaseEndDate).getTime() : 0;
+        const bDate = b.leaseEndDate ? new Date(b.leaseEndDate).getTime() : 0;
+        return bDate - aDate;
+      }
+      const aName = `${a.firstName || ''} ${a.lastName || ''}`.trim().toLowerCase();
+      const bName = `${b.firstName || ''} ${b.lastName || ''}`.trim().toLowerCase();
+      return aName.localeCompare(bName);
+    });
 
     setFilteredTenants(filtered);
   };
@@ -168,21 +204,48 @@ const Tenants = () => {
     return <LoadingSpinner text="Loading tenants..." fullScreen />;
   }
 
+  const totalTenants = tenants.length;
+  const activeTenants = tenants.filter((t) => String(t.status || '').toLowerCase() === 'active').length;
+  const inactiveTenants = tenants.filter((t) => String(t.status || '').toLowerCase() === 'inactive').length;
+  const pastTenants = tenants.filter((t) => String(t.status || '').toLowerCase() === 'past').length;
+  const assignedTenants = tenants.filter((t) => Boolean(t.house)).length;
+  const unassignedTenants = totalTenants - assignedTenants;
+
   return (
     <div className="tenants-page">
-      {/* Compact Header */}
-      <div className="tenants-header">
+      <div className="tenants-header card-premium">
         <div className="header-left">
-          <h1>Tenants</h1>
-          <span className="count-badge">{filteredTenants.length} {filteredTenants.length === 1 ? 'tenant' : 'tenants'}</span>
+          <div>
+            <h1>Tenants</h1>
+            <div className="tenants-subtitle">
+              Showing <strong>{filteredTenants.length}</strong> of {totalTenants}
+            </div>
+          </div>
+          <div className="summary-chips">
+            <button className={`chip ${statusFilter === 'all' ? 'active' : ''}`} onClick={() => setStatusFilter('all')}>
+              All <span className="chip-count">{totalTenants}</span>
+            </button>
+            <button className={`chip chip-success ${statusFilter === 'active' ? 'active' : ''}`} onClick={() => setStatusFilter('active')}>
+              Active <span className="chip-count">{activeTenants}</span>
+            </button>
+            <button className={`chip chip-warn ${statusFilter === 'inactive' ? 'active' : ''}`} onClick={() => setStatusFilter('inactive')}>
+              Inactive <span className="chip-count">{inactiveTenants}</span>
+            </button>
+            <button className={`chip chip-neutral ${statusFilter === 'past' ? 'active' : ''}`} onClick={() => setStatusFilter('past')}>
+              Past <span className="chip-count">{pastTenants}</span>
+            </button>
+            <button className={`chip chip-info ${assignmentFilter === 'unassigned' ? 'active' : ''}`} onClick={() => setAssignmentFilter(assignmentFilter === 'unassigned' ? 'all' : 'unassigned')}>
+              Unassigned <span className="chip-count">{unassignedTenants}</span>
+            </button>
+          </div>
         </div>
-        <button className="btn-add" onClick={() => { resetForm(); setShowModal(true); }}>
-          + Add Tenant
+        <button className="btn-primary" onClick={() => { resetForm(); setShowModal(true); }}>
+          Add Tenant
         </button>
       </div>
 
       {/* Filters and Controls */}
-      <div className="tenants-controls">
+      <div className="tenants-controls card-premium">
         <div className="controls-left">
           <div className="search-box">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -191,20 +254,36 @@ const Tenants = () => {
             </svg>
             <input
               type="text"
-              placeholder="Search tenants..."
+              placeholder="Search name, email, phone, house..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
-          <select
-            className="filter-select"
-            value={selectedApartment}
-            onChange={(e) => setSelectedApartment(e.target.value)}
-          >
-            <option value="all">All Apartments</option>
-            {apartments.map(apt => (
-              <option key={apt._id} value={apt._id}>{apt.name}</option>
-            ))}
+          {(!isCaretaker() || isSuperadmin()) ? (
+            <select
+              className="filter-select"
+              value={selectedApartment}
+              onChange={(e) => setSelectedApartment(e.target.value)}
+            >
+              <option value="all">All Apartments</option>
+              {apartments.map(apt => (
+                <option key={apt._id} value={apt._id}>{apt.name}</option>
+              ))}
+            </select>
+          ) : (
+            <div className="filter-readonly">
+              <span className="apartment-badge">{user?.apartment?.name || 'Dansu 2011'}</span>
+              <small>✓ Showing your apartment tenants</small>
+            </div>
+          )}
+          <select className="filter-select" value={assignmentFilter} onChange={(e) => setAssignmentFilter(e.target.value)}>
+            <option value="all">All Assignments</option>
+            <option value="assigned">Assigned</option>
+            <option value="unassigned">Unassigned</option>
+          </select>
+          <select className="filter-select" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+            <option value="name">Sort: Name</option>
+            <option value="leaseEnd">Sort: Lease End</option>
           </select>
         </div>
         <div className="controls-right">
@@ -238,15 +317,46 @@ const Tenants = () => {
       {filteredTenants.length === 0 ? (
         <div className="empty-state">
           <span className="empty-icon">👤</span>
-          <p>No tenants found</p>
-          {selectedApartment !== 'all' || searchQuery ? (
-            <button className="btn-clear-filters" onClick={() => { setSelectedApartment('all'); setSearchQuery(''); }}>
-              Clear Filters
-            </button>
-          ) : null}
+          {isCaretaker() ? (
+            <>
+              <h3>No tenants assigned yet</h3>
+              <p>Assign tenants to houses from the <strong>Apartment Detail</strong> page.</p>
+              <div className="empty-actions">
+                <button 
+                  className="btn-primary" 
+                  onClick={() => navigate('/apartments')}
+                >
+                  Go to Apartments →
+                </button>
+                <button 
+                  className="btn-secondary" 
+                  onClick={() => { 
+                    setSelectedApartment('all'); 
+                    setSearchQuery(''); 
+                    setStatusFilter('all'); 
+                    setAssignmentFilter('all'); 
+                  }}
+                >
+                  Clear Filters
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p>No tenants found</p>
+              {(selectedApartment !== 'all' || searchQuery || statusFilter !== 'all' || assignmentFilter !== 'all') ? (
+                <button
+                  className="btn-secondary"
+                  onClick={() => { setSelectedApartment('all'); setSearchQuery(''); setStatusFilter('all'); setAssignmentFilter('all'); }}
+                >
+                  Clear Filters
+                </button>
+              ) : null}
+            </>
+          )}
         </div>
       ) : viewMode === 'table' ? (
-        <div className="table-container">
+        <div className="table-container card-premium">
           <table className="tenants-table">
             <thead>
               <tr>
@@ -300,13 +410,13 @@ const Tenants = () => {
                   </td>
                   <td onClick={(e) => e.stopPropagation()}>
                     <div className="table-actions">
-                      <button className="btn-view-small" onClick={() => navigate(`/tenants/${tenant._id}`)}>
+                      <button className="btn-view-small" onClick={() => navigate(`/tenants/${tenant._id}`)} title="View details">
                         View
                       </button>
-                      <button className="btn-edit-small" onClick={() => handleEdit(tenant)}>
+                      <button className="btn-edit-small" onClick={() => handleEdit(tenant)} title="Edit tenant">
                         Edit
                       </button>
-                      <button className="btn-delete-small" onClick={() => handleDelete(tenant._id)}>
+                      <button className="btn-delete-small" onClick={() => handleDelete(tenant._id)} title="Delete tenant">
                         Delete
                       </button>
                     </div>

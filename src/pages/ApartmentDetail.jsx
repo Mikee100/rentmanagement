@@ -7,7 +7,7 @@ import {
   ChevronLeft, Edit3, Trash2, UserMinus,
   UserPlus, Info, Wrench, Receipt, DollarSign
 } from 'lucide-react';
-import { apartmentsAPI, housesAPI, tenantsAPI, paymentsAPI, maintenanceAPI, expensesAPI } from '../services/api';
+import { apartmentsAPI, housesAPI, tenantsAPI, paymentsAPI, maintenanceAPI, expensesAPI, reportsAPI } from '../services/api';
 import { useToast } from '../components/Toast';
 import ConfirmModal from '../components/ConfirmModal';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -90,6 +90,8 @@ const ApartmentDetail = () => {
   const [loadingCollection, setLoadingCollection] = useState(false);
   const [financialHistory, setFinancialHistory] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [historyStatusFilter, setHistoryStatusFilter] = useState('all');
+  const [historySearch, setHistorySearch] = useState('');
 
   useEffect(() => {
     fetchData();
@@ -97,8 +99,10 @@ const ApartmentDetail = () => {
   }, [id]);
 
   useEffect(() => {
+    if (activeTab !== 'payments') return;
+    if (financialsView !== 'collection') return;
     fetchCollectionReport();
-  }, [id, collectionMonth, collectionYear]);
+  }, [id, collectionMonth, collectionYear, activeTab, financialsView]);
 
   const fetchHistory = async () => {
     if (!id) return;
@@ -676,7 +680,36 @@ const ApartmentDetail = () => {
     };
   };
 
-  const financials = useMemo(() => calculateFinancials(), [payments, houses]);
+  const financials = useMemo(() => calculateFinancials(), [payments, houses, apartment?.caretakerHouse]);
+
+  const isCaretakerHouseId = useMemo(() => {
+    return apartment?.caretakerHouse ? String(apartment.caretakerHouse) : null;
+  }, [apartment?.caretakerHouse]);
+
+  const filteredPayments = useMemo(() => {
+    return (payments || []).filter((p) => {
+      const houseId = String(p.house?._id || p.house || '');
+      if (isCaretakerHouseId && houseId === isCaretakerHouseId) return false;
+      return true;
+    });
+  }, [payments, isCaretakerHouseId]);
+
+  const paymentHistoryRows = useMemo(() => {
+    const q = historySearch.trim().toLowerCase();
+    const statusFilter = historyStatusFilter;
+
+    return filteredPayments
+      .slice()
+      .sort((a, b) => new Date(b.paymentDate || 0) - new Date(a.paymentDate || 0))
+      .filter((p) => {
+        if (statusFilter !== 'all' && p.status !== statusFilter) return false;
+        if (!q) return true;
+        const tenantName = `${p.tenant?.firstName || ''} ${p.tenant?.lastName || ''}`.trim().toLowerCase();
+        const houseNumber = String(p.house?.houseNumber || '').toLowerCase();
+        const method = String(p.paymentMethod || '').toLowerCase();
+        return tenantName.includes(q) || houseNumber.includes(q) || method.includes(q);
+      });
+  }, [filteredPayments, historyStatusFilter, historySearch]);
 
   // Filter units logic
   const filteredHouses = useMemo(() => {
@@ -691,7 +724,10 @@ const ApartmentDetail = () => {
   const occupiedCount = houses.filter(h => h.status === 'occupied').length;
   const availableCount = houses.filter(h => h.status === 'available').length;
   const maintenanceCount = houses.filter(h => h.status === 'maintenance').length;
-  const recentPayments = payments.slice(0, 8);
+  const recentPayments = filteredPayments
+    .slice()
+    .sort((a, b) => new Date(b.paymentDate || 0) - new Date(a.paymentDate || 0))
+    .slice(0, 8);
   const activeMaintenance = maintenanceRequests.filter(m => m.status !== 'completed' && m.status !== 'cancelled').slice(0, 5);
 
   if (loading) return <LoadingSpinner text="Loading apartment details..." fullScreen />;
@@ -1036,6 +1072,7 @@ const ApartmentDetail = () => {
                       <button 
                         className="btn-secondary-sm" 
                         onClick={handleExportCollection}
+                        disabled={loadingCollection || !collectionReport}
                       >
                          <Receipt size={14} /> Export Table
                       </button>
@@ -1176,34 +1213,70 @@ const ApartmentDetail = () => {
                   </div>
                 )}
 
-                {financialsView === 'collection' && collectionReport && (
-                  <div className="collection-summary-grid">
-                    <div className="summary-card gold">
-                      <span className="summary-label">Total Expected</span>
-                      <h4 className="summary-value">KSh {collectionReport.summary.totalExpected.toLocaleString()}</h4>
-                    </div>
-                    <div className="summary-card success">
-                      <span className="summary-label">Total Collected</span>
-                      <h4 className="summary-value">KSh {collectionReport.summary.totalPaid.toLocaleString()}</h4>
-                    </div>
-                    <div className="summary-card danger">
-                      <span className="summary-label">Total Deficit</span>
-                      <h4 className="summary-value">KSh {collectionReport.summary.totalDeficit.toLocaleString()}</h4>
-                    </div>
-                    <div className="summary-card purple">
-                      <span className="summary-label">Advance Collections</span>
-                      <h4 className="summary-value">KSh {collectionReport.summary.totalAdvance.toLocaleString()}</h4>
-                    </div>
-                    <div className="summary-card info">
-                      <span className="summary-label">Total Overpayments</span>
-                      <h4 className="summary-value">KSh {collectionReport.summary.totalOverpayment.toLocaleString()}</h4>
-                    </div>
-                  </div>
+                {financialsView === 'collection' && (
+                  <>
+                    {loadingCollection ? (
+                      <div className="financials-loading">
+                        <LoadingSpinner text="Loading collection report..." />
+                      </div>
+                    ) : collectionReport ? (
+                      <div className="collection-summary-grid">
+                        <div className="summary-card gold">
+                          <span className="summary-label">Total Expected</span>
+                          <h4 className="summary-value">KSh {collectionReport.summary.totalExpected.toLocaleString()}</h4>
+                        </div>
+                        <div className="summary-card success">
+                          <span className="summary-label">Total Collected</span>
+                          <h4 className="summary-value">KSh {collectionReport.summary.totalPaid.toLocaleString()}</h4>
+                        </div>
+                        <div className="summary-card danger">
+                          <span className="summary-label">Total Deficit</span>
+                          <h4 className="summary-value">KSh {collectionReport.summary.totalDeficit.toLocaleString()}</h4>
+                        </div>
+                        <div className="summary-card purple">
+                          <span className="summary-label">Advance Collections</span>
+                          <h4 className="summary-value">KSh {collectionReport.summary.totalAdvance.toLocaleString()}</h4>
+                        </div>
+                        <div className="summary-card info">
+                          <span className="summary-label">Total Overpayments</span>
+                          <h4 className="summary-value">KSh {collectionReport.summary.totalOverpayment.toLocaleString()}</h4>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="financials-empty">
+                        <AlertCircle size={18} />
+                        No collection report available for this period.
+                      </div>
+                    )}
+                  </>
                 )}
 
                 <div className="payments-table-container">
                   {financialsView === 'history' ? (
-                    <table className="premium-table">
+                    <>
+                      <div className="financials-table-toolbar">
+                        <div className="financials-search">
+                          <input
+                            value={historySearch}
+                            onChange={(e) => setHistorySearch(e.target.value)}
+                            placeholder="Search tenant, house, method..."
+                          />
+                        </div>
+                        <div className="financials-filters">
+                          <select value={historyStatusFilter} onChange={(e) => setHistoryStatusFilter(e.target.value)}>
+                            <option value="all">All statuses</option>
+                            <option value="paid">Paid</option>
+                            <option value="pending">Pending</option>
+                            <option value="partial">Partial</option>
+                            <option value="overdue">Overdue</option>
+                          </select>
+                          <div className="financials-count">
+                            Showing <strong>{Math.min(paymentHistoryRows.length, 50)}</strong> of {paymentHistoryRows.length}
+                          </div>
+                        </div>
+                      </div>
+
+                      <table className="premium-table">
                       <thead>
                         <tr>
                           <th>Date</th>
@@ -1215,9 +1288,16 @@ const ApartmentDetail = () => {
                         </tr>
                       </thead>
                       <tbody>
-                        {payments.slice(0, 20).map(p => (
-                          <tr key={p._id}>
-                            <td>{new Date(p.paymentDate).toLocaleDateString()}</td>
+                        {paymentHistoryRows.length === 0 ? (
+                          <tr>
+                            <td colSpan="6" className="table-empty-cell">
+                              No payments match your filters.
+                            </td>
+                          </tr>
+                        ) : (
+                          paymentHistoryRows.slice(0, 50).map(p => (
+                            <tr key={p._id}>
+                            <td>{p.paymentDate ? new Date(p.paymentDate).toLocaleDateString() : '-'}</td>
                             <td>
                               <div className="table-tenant-cell">
                                 <div className="mini-avatar">{p.tenant?.firstName?.[0]}</div>
@@ -1225,13 +1305,15 @@ const ApartmentDetail = () => {
                               </div>
                             </td>
                             <td><span className="unit-tag">{p.house?.houseNumber}</span></td>
-                            <td><span className="amount-cell">KSh {p.amount?.toLocaleString()}</span></td>
+                            <td><span className="amount-cell">KSh {(p.paidAmount || p.amount || 0).toLocaleString()}</span></td>
                             <td><span className={`badge-status ${p.status}`}>{p.status}</span></td>
-                            <td>{p.paymentMethod || 'MPesa'}</td>
+                            <td>{p.paymentMethod || 'N/A'}</td>
                           </tr>
-                        ))}
+                          ))
+                        )}
                       </tbody>
                     </table>
+                    </>
                   ) : (
                     <table className="premium-table collection-table">
                       <thead>
@@ -1241,7 +1323,19 @@ const ApartmentDetail = () => {
                               type="checkbox" 
                               onChange={(e) => {
                                 if (e.target.checked) {
-                                  setSelectedHouses(houses.filter(h => h.tenant).map(h => h._id));
+                                  const eligible = houses
+                                    .filter(h => h.tenant && (!isCaretakerHouseId || String(h._id) !== isCaretakerHouseId))
+                                    .filter((house) => {
+                                      const monthPayment = payments.find((p) =>
+                                        (p.house?._id === house._id || p.house === house._id) &&
+                                        p.month === collectionMonth &&
+                                        p.year === parseInt(collectionYear)
+                                      );
+                                      const isPaid = monthPayment?.status === 'paid' || monthPayment?.amount === 0;
+                                      return !isPaid;
+                                    })
+                                    .map(h => h._id);
+                                  setSelectedHouses(eligible);
                                 } else {
                                   setSelectedHouses([]);
                                 }
