@@ -6,7 +6,6 @@ import {
   Home,
   CheckCircle2,
   PlusCircle,
-  Wrench,
   Users,
   Banknote,
   BarChart3,
@@ -18,7 +17,7 @@ import {
   UserPlus,
   Building
 } from 'lucide-react';
-import { apartmentsAPI, housesAPI, tenantsAPI, paymentsAPI, maintenanceAPI } from '../services/api';
+import { apartmentsAPI, housesAPI, tenantsAPI, paymentsAPI } from '../services/api';
 import { useToast } from '../components/Toast';
 import LoadingSpinner from '../components/LoadingSpinner';
 import RevenueChart from '../components/charts/RevenueChart';
@@ -68,7 +67,6 @@ const Dashboard = () => {
     totalHouses: 0,
     occupiedHouses: 0,
     availableHouses: 0,
-    maintenanceHouses: 0,
     totalTenants: 0,
     totalPayments: 0,
     monthlyRevenue: 0,
@@ -77,7 +75,6 @@ const Dashboard = () => {
   const [paymentStatusData, setPaymentStatusData] = useState([]);
   const [occupancyData, setOccupancyData] = useState({ occupied: 0, available: 0, maintenance: 0 });
   const [recentPayments, setRecentPayments] = useState([]);
-  const [openMaintenance, setOpenMaintenance] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -94,7 +91,6 @@ const Dashboard = () => {
         revenueRes,
         paymentStatusRes,
         occupancyRes,
-        maintenanceRes,
       ] = await Promise.all([
         apartmentsAPI.getAll(),
         housesAPI.getAll(),
@@ -103,7 +99,6 @@ const Dashboard = () => {
         paymentsAPI.getRevenueTrend(6),
         paymentsAPI.getPaymentStatus(6),
         housesAPI.getOccupancyAnalytics(),
-        maintenanceAPI.getAll({}),
       ]);
 
       const houses = housesRes.data;
@@ -120,7 +115,6 @@ const Dashboard = () => {
         totalHouses: houses.length,
         occupiedHouses: houses.filter((h) => h.status === 'occupied').length,
         availableHouses: houses.filter((h) => h.status === 'available').length,
-        maintenanceHouses: houses.filter((h) => h.status === 'maintenance').length,
         totalTenants: tenantsRes.data.filter((t) => t.status === 'active').length,
         totalPayments: payments.length,
         monthlyRevenue,
@@ -132,12 +126,6 @@ const Dashboard = () => {
       setRecentPayments(
         [...payments]
           .sort((a, b) => new Date(b.paymentDate || 0) - new Date(a.paymentDate || 0))
-          .slice(0, 6)
-      );
-      setOpenMaintenance(
-        [...(maintenanceRes.data || [])]
-          .filter((r) => r.status !== 'completed' && r.status !== 'cancelled')
-          .sort((a, b) => new Date(b.requestedDate || 0) - new Date(a.requestedDate || 0))
           .slice(0, 6)
       );
       setLoading(false);
@@ -157,8 +145,7 @@ const Dashboard = () => {
     { title: 'Apartments', value: stats.totalApartments, icon: Building2, color: '#6366f1', subtitle: 'Buildings under management', onClick: () => navigate('/apartments') },
     { title: 'Total Houses', value: stats.totalHouses, icon: Home, color: '#10b981', subtitle: `Occupancy ${occupancyRate}%`, onClick: () => navigate('/apartments') },
     { title: 'Occupied', value: stats.occupiedHouses, icon: CheckCircle2, color: '#8b5cf6', subtitle: 'Units with active tenants' },
-    { title: 'Available', value: stats.availableHouses, icon: PlusCircle, color: '#3b82f6', subtitle: 'Ready to assign', onClick: () => navigate('/assign-tenant') },
-    { title: 'Maintenance', value: stats.maintenanceHouses, icon: Wrench, color: '#f59e0b', subtitle: 'Units needing attention', onClick: () => navigate('/maintenance') },
+    { title: 'Available', value: stats.availableHouses, icon: PlusCircle, color: '#3b82f6', subtitle: 'Ready to assign', onClick: () => navigate('/apartments') },
     { title: 'Active Tenants', value: stats.totalTenants, icon: Users, color: '#ec4899', subtitle: 'Currently renting', onClick: () => navigate('/tenants') },
     { title: 'Revenue (KES)', value: (stats.monthlyRevenue || 0).toLocaleString(), icon: Banknote, color: '#10b981', subtitle: 'Paid this month', onClick: () => navigate('/payments') },
     { title: 'Total Invoices', value: stats.totalPayments, icon: BarChart3, color: '#6366f1', subtitle: 'All payment records', onClick: () => navigate('/payments') },
@@ -211,17 +198,6 @@ const Dashboard = () => {
               <ArrowRight size={16} className="qa-arrow" />
             </button>
 
-            <button className="quick-action" onClick={() => navigate('/maintenance')}>
-              <div className="qa-icon" style={{ color: 'var(--warning)', background: 'rgba(245,158,11,0.12)' }}>
-                <Wrench size={18} />
-              </div>
-              <div className="qa-text">
-                <div className="qa-title">Create maintenance</div>
-                <div className="qa-subtitle">Log a new request</div>
-              </div>
-              <ArrowRight size={16} className="qa-arrow" />
-            </button>
-
             <button className="quick-action" onClick={() => navigate('/tenants')}>
               <div className="qa-icon" style={{ color: 'var(--secondary)', background: 'rgba(236,72,153,0.12)' }}>
                 <UserPlus size={18} />
@@ -249,7 +225,7 @@ const Dashboard = () => {
         <div className="card-premium dashboard-recent">
           <div className="section-header">
             <h3 className="section-title">Recent</h3>
-            <span className="section-subtitle">Latest payments and open maintenance</span>
+            <span className="section-subtitle">Latest payment records</span>
           </div>
 
           <div className="recent-columns">
@@ -276,34 +252,6 @@ const Dashboard = () => {
                       <div className="recent-meta">
                         <div className={`pill pill-${p.status}`}>{p.status}</div>
                         <div className="recent-amount">KSh {(p.paidAmount || p.amount || 0).toLocaleString()}</div>
-                      </div>
-                    </button>
-                  ))
-                )}
-              </div>
-            </div>
-
-            <div className="recent-column">
-              <div className="recent-column-header">
-                <h4>Maintenance</h4>
-                <button className="link-btn" onClick={() => navigate('/maintenance')}>View all</button>
-              </div>
-              <div className="recent-list">
-                {openMaintenance.length === 0 ? (
-                  <div className="empty-state">No open maintenance requests.</div>
-                ) : (
-                  openMaintenance.map((r) => (
-                    <button key={r._id} className="recent-item" onClick={() => navigate('/maintenance')}>
-                      <div className="recent-main">
-                        <div className="recent-title">{r.title || 'Maintenance request'}</div>
-                        <div className="recent-subtitle">
-                          {r.house?.houseNumber ? `House ${r.house.houseNumber}` : 'House'}
-                          {r.requestedDate ? ` • ${new Date(r.requestedDate).toLocaleDateString()}` : ''}
-                        </div>
-                      </div>
-                      <div className="recent-meta">
-                        <div className={`pill pill-${r.status}`}>{String(r.status || '').replace('_', ' ')}</div>
-                        <div className={`pill pill-priority-${r.priority}`}>{r.priority}</div>
                       </div>
                     </button>
                   ))

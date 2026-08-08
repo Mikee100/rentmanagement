@@ -18,6 +18,7 @@ const Payments = () => {
   };
 
   const [payments, setPayments] = useState([]);
+  const [monthlyReport, setMonthlyReport] = useState(null);
   const [tenants, setTenants] = useState([]);
   const [houses, setHouses] = useState([]);
   const [apartments, setApartments] = useState([]);
@@ -93,7 +94,21 @@ const Payments = () => {
 
   useEffect(() => {
     fetchData();
+    fetchMonthlyReport();
   }, []);
+
+  const fetchMonthlyReport = async () => {
+    // Get current month/year
+    const now = new Date();
+    const month = String(now.getMonth() + 1).padStart(2, '0');
+    const year = now.getFullYear();
+    try {
+      const res = await paymentsAPI.getAll({ params: { report: 'monthly', month, year } });
+      setMonthlyReport(res.data);
+    } catch (error) {
+      setMonthlyReport(null);
+    }
+  };
 
   const fetchData = async () => {
     try {
@@ -311,14 +326,17 @@ const Payments = () => {
     return <LoadingSpinner text="Loading payments..." fullScreen />;
   }
 
+  // Show monthly summary if available
+  const now = new Date();
+  const currentMonth = String(now.getMonth() + 1).padStart(2, '0');
+  const currentYear = now.getFullYear();
+
   const handleGenerateMonthlyRent = async (formData) => {
     setSubmitting(true);
     try {
       const result = await paymentsAPI.generateMonthlyRent({
         month: formData.month,
-        year: formData.year,
-        lateFeePercentage: formData.lateFeePercentage || 5,
-        gracePeriodDays: formData.gracePeriodDays || 5
+        year: formData.year
       });
       toast.success(`Generated ${result.data.generated} payments${result.data.errors > 0 ? ` (${result.data.errors} errors)` : ''}`);
       setShowGenerateRentModal(false);
@@ -335,10 +353,7 @@ const Payments = () => {
   const handleCheckOverdue = async () => {
     setSubmitting(true);
     try {
-      const result = await paymentsAPI.checkOverdue({
-        lateFeePercentage: 5,
-        gracePeriodDays: 5
-      });
+      const result = await paymentsAPI.checkOverdue({});
       toast.success(`Updated ${result.data.updated} payments to overdue status`);
       fetchData();
     } catch (error) {
@@ -472,6 +487,13 @@ const Payments = () => {
 
   return (
     <div className="payments">
+      {monthlyReport && (
+        <div className="monthly-summary" style={{ marginBottom: 16, background: '#f6f6fa', padding: 16, borderRadius: 8 }}>
+          <strong>Monthly Income Report ({monthlyReport.month}/{monthlyReport.year}):</strong>
+          <div>Total Income (excluding advances): <span style={{ color: '#27ae60', fontWeight: 600 }}>KSh {Number(monthlyReport.totalIncome || 0).toLocaleString()}</span></div>
+          <div>Advance Applied This Month: <span style={{ color: '#8e44ad', fontWeight: 600 }}>KSh {Number(monthlyReport.totalAdvanceApplied || 0).toLocaleString()}</span></div>
+        </div>
+      )}
       <div className="page-header">
         <h1>Payments</h1>
         <div className="header-actions">
@@ -533,74 +555,13 @@ const Payments = () => {
         </div>
       </div>
 
-      {/* Search and Filters */}
-      <div className="filters-section">
-        <div className="filters-row">
-          <SearchBar
-            value={searchQuery}
-            onChange={setSearchQuery}
-            placeholder="Search payments..."
-          />
-          <select
-            className="filter-select"
-            value={filters.status || ''}
-            onChange={(e) => updateFilter('status', e.target.value)}
-          >
-            <option value="">All Statuses</option>
-            <option value="paid">Paid</option>
-            <option value="pending">Pending</option>
-            <option value="overdue">Overdue</option>
-            <option value="partial">Partial</option>
-          </select>
-          <select
-            className="filter-select"
-            value={filters.paymentMethod || ''}
-            onChange={(e) => updateFilter('paymentMethod', e.target.value)}
-          >
-            <option value="">All Methods</option>
-            <option value="cash">Cash</option>
-            <option value="bank_transfer">Bank Transfer</option>
-            <option value="equity_bank">Equity Bank</option>
-            <option value="mobile_money">Mobile Money</option>
-            <option value="mpesa_stk">M-Pesa STK</option>
-            <option value="paybill">Paybill</option>
-            <option value="online">Online</option>
-            <option value="other">Other</option>
-          </select>
-          <input
-            type="date"
-            className="filter-input"
-            value={filters.startDate || ''}
-            onChange={(e) => updateFilter('startDate', e.target.value)}
-            placeholder="Start Date"
-          />
-          <input
-            type="date"
-            className="filter-input"
-            value={filters.endDate || ''}
-            onChange={(e) => updateFilter('endDate', e.target.value)}
-            placeholder="End Date"
-          />
-          <input
-            type="number"
-            className="filter-input"
-            value={filters.amountMin || ''}
-            onChange={(e) => updateFilter('amountMin', e.target.value ? parseFloat(e.target.value) : '')}
-            placeholder="Min Amount"
-          />
-          <input
-            type="number"
-            className="filter-input"
-            value={filters.amountMax || ''}
-            onChange={(e) => updateFilter('amountMax', e.target.value ? parseFloat(e.target.value) : '')}
-            placeholder="Max Amount"
-          />
-          {(filters.status || filters.paymentMethod || filters.startDate || filters.endDate || filters.amountMin || filters.amountMax || searchQuery) && (
-            <button className="btn-secondary" onClick={clearFilters}>
-              Clear Filters
-            </button>
-          )}
-        </div>
+      {/* Simple Search Only */}
+      <div style={{ marginBottom: 24 }}>
+        <SearchBar
+          value={searchQuery}
+          onChange={setSearchQuery}
+          placeholder="Search payments..."
+        />
       </div>
 
       <div className="payments-table">
@@ -629,6 +590,7 @@ const Payments = () => {
                 Status {sortField === 'status' && (sortOrder === 'asc' ? '↑' : '↓')}
               </th>
               <th>Month/Year</th>
+              <th>Advance Applied</th>
               <th>Actions</th>
             </tr>
           </thead>
@@ -661,11 +623,6 @@ const Payments = () => {
                   {payment.overpayment > 0 && (
                     <span style={{ color: '#8e44ad', fontSize: '0.85rem', display: 'block', fontWeight: 'bold' }}>
                       Overpaid: KSh {(payment.overpayment || 0).toLocaleString()}
-                    </span>
-                  )}
-                  {payment.lateFee > 0 && (
-                    <span style={{ color: 'var(--danger)', fontSize: '0.85rem', display: 'block' }}>
-                      + KSh {(payment.lateFee || 0).toLocaleString()} late fee
                     </span>
                   )}
                   {payment.carriedForward > 0 && (
@@ -733,6 +690,14 @@ const Payments = () => {
                   </div>
                 </td>
                 <td>{payment.month}/{payment.year}</td>
+                <td>
+                  {payment.isAdvance && (
+                    <span style={{ color: '#8e44ad', fontWeight: 600 }}>ADVANCE</span>
+                  )}
+                  {payment.advanceApplied && !payment.isAdvance && (
+                    <span style={{ color: '#8e44ad', fontWeight: 600 }}>Advance Used</span>
+                  )}
+                </td>
                 <td>
                   <div className="table-actions">
                     <button 

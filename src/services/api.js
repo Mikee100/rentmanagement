@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { isFeatureEnabled } from '../config/features';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:7000/api';
 
@@ -8,6 +9,12 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
 });
+
+const disabledFeatureError = (featureName) => {
+  const error = new Error(`${featureName} feature is currently disabled`);
+  error.code = 'FEATURE_DISABLED';
+  return Promise.reject(error);
+};
 
 // Add token to requests if available
 api.interceptors.request.use(
@@ -84,7 +91,7 @@ export const tenantsAPI = {
 
 // Payments API
 export const paymentsAPI = {
-  getAll: () => api.get('/payments'),
+  getAll: (config = {}) => api.get('/payments', config),
   getById: (id) => api.get(`/payments/${id}`),
   getByTenant: (tenantId) => api.get(`/payments/tenant/${tenantId}`),
   getByHouse: (houseId) => api.get(`/payments/house/${houseId}`),
@@ -101,7 +108,6 @@ export const paymentsAPI = {
   getPaymentStatus: (months = 6) => api.get(`/payments/analytics/payment-status?months=${months}`),
   batchMarkPaid: (data) => api.post('/payments/batch-mark-paid', data),
 };
-
 // System Config API
 export const configAPI = {
   get: () => api.get('/config'),
@@ -117,34 +123,44 @@ export const mpesaAPI = {
 
 // Equity Bank API
 export const equityBankAPI = {
-  verifyAccount: (accountNumber) => api.get(`/equity-bank/verify-account/${accountNumber}`),
-  manualPayment: (data) => api.post('/equity-bank/manual-payment', data),
+  verifyAccount: (accountNumber) =>
+    isFeatureEnabled('equityBank')
+      ? api.get(`/equity-bank/verify-account/${accountNumber}`)
+      : disabledFeatureError('equityBank'),
+  manualPayment: (data) =>
+    isFeatureEnabled('equityBank')
+      ? api.post('/equity-bank/manual-payment', data)
+      : disabledFeatureError('equityBank'),
 };
 
 // Maintenance Requests API
 export const maintenanceAPI = {
   getAll: (params) => {
+    if (!isFeatureEnabled('maintenance')) return disabledFeatureError('maintenance');
     const queryString = new URLSearchParams(params).toString();
     return api.get(`/maintenance${queryString ? `?${queryString}` : ''}`);
   },
-  getById: (id) => api.get(`/maintenance/${id}`),
-  create: (data) => api.post('/maintenance', data),
-  update: (id, data) => api.put(`/maintenance/${id}`, data),
-  delete: (id) => api.delete(`/maintenance/${id}`),
+  getById: (id) => (isFeatureEnabled('maintenance') ? api.get(`/maintenance/${id}`) : disabledFeatureError('maintenance')),
+  create: (data) => (isFeatureEnabled('maintenance') ? api.post('/maintenance', data) : disabledFeatureError('maintenance')),
+  update: (id, data) => (isFeatureEnabled('maintenance') ? api.put(`/maintenance/${id}`, data) : disabledFeatureError('maintenance')),
+  delete: (id) => (isFeatureEnabled('maintenance') ? api.delete(`/maintenance/${id}`) : disabledFeatureError('maintenance')),
 };
 
 // Expenses API
 export const expensesAPI = {
   getAll: (params) => {
+    if (!isFeatureEnabled('expenses')) return disabledFeatureError('expenses');
     const queryString = new URLSearchParams(params).toString();
     return api.get(`/expenses${queryString ? `?${queryString}` : ''}`);
   },
-  getById: (id) => api.get(`/expenses/${id}`),
-  getByApartment: (apartmentId) => api.get(`/expenses/apartment/${apartmentId}`),
-  create: (data) => api.post('/expenses', data),
-  update: (id, data) => api.put(`/expenses/${id}`, data),
-  delete: (id) => api.delete(`/expenses/${id}`),
+  getById: (id) => (isFeatureEnabled('expenses') ? api.get(`/expenses/${id}`) : disabledFeatureError('expenses')),
+  getByApartment: (apartmentId) =>
+    (isFeatureEnabled('expenses') ? api.get(`/expenses/apartment/${apartmentId}`) : disabledFeatureError('expenses')),
+  create: (data) => (isFeatureEnabled('expenses') ? api.post('/expenses', data) : disabledFeatureError('expenses')),
+  update: (id, data) => (isFeatureEnabled('expenses') ? api.put(`/expenses/${id}`, data) : disabledFeatureError('expenses')),
+  delete: (id) => (isFeatureEnabled('expenses') ? api.delete(`/expenses/${id}`) : disabledFeatureError('expenses')),
   getSummary: (params) => {
+    if (!isFeatureEnabled('expenses')) return disabledFeatureError('expenses');
     const queryString = new URLSearchParams(params).toString();
     return api.get(`/expenses/summary/totals${queryString ? `?${queryString}` : ''}`);
   },
@@ -167,6 +183,10 @@ export const reportsAPI = {
   getRevenueByApartment: (params) => {
     const queryString = new URLSearchParams(params || {}).toString();
     return api.get(`/reports/revenue-by-apartment${queryString ? `?${queryString}` : ''}`);
+  },
+  getRevenueByApartmentMonthly: (params) => {
+    const queryString = new URLSearchParams(params || {}).toString();
+    return api.get(`/reports/revenue-by-apartment-monthly${queryString ? `?${queryString}` : ''}`);
   },
   getMonthlyApartmentUnits: (params) => {
     const queryString = new URLSearchParams(params || {}).toString();

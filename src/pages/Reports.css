@@ -170,6 +170,45 @@
   align-items: flex-start;
 }
 
+.reports-layout.reports-layout-single {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.reports-home-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px;
+}
+
+.report-link-card {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle, var(--border));
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  box-shadow: var(--shadow-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-decoration: none;
+  transition: all 0.18s ease;
+}
+
+.report-link-card:hover {
+  border-color: rgba(79, 70, 229, 0.45);
+  transform: translateY(-1px);
+}
+
+.report-link-title {
+  color: var(--text-primary);
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.report-link-caption {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+
 .reports-sidebar {
   background: var(--bg-primary);
   border-radius: var(--radius-lg);
@@ -335,6 +374,61 @@
   border-top: 1px solid var(--border);
   color: var(--text-secondary);
   font-size: 0.85rem;
+}
+
+.income-comparison-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+  margin: 14px 0;
+}
+
+.summary-card.compact {
+  margin-bottom: 0;
+  padding: 12px;
+}
+
+.summary-card.compact .large-amount {
+  font-size: 1.25rem;
+  margin-top: 6px;
+}
+
+.summary-card .large-amount.success {
+  color: var(--success);
+}
+
+.summary-card .large-amount.danger {
+  color: var(--danger);
+}
+
+.income-charts-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.chart-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-secondary);
+  padding: 10px;
+}
+
+.chart-stage {
+  height: 320px;
+}
+
+.chart-stage.donut {
+  height: 320px;
+}
+
+.monthly-performance-card {
+  margin-top: 12px;
+}
+
+.monthly-performance-stage {
+  height: 360px;
 }
 
 .summary-card {
@@ -649,6 +743,10 @@
     align-items: stretch;
   }
 
+  .income-charts-grid {
+    grid-template-columns: 1fr;
+  }
+
   .export-buttons {
     justify-content: flex-start;
   }
@@ -673,4 +771,15 @@
     padding: 8px;
   }
 }
+
+.report-chart-section {
+  margin: 16px 0;
+  box-shadow: var(--shadow-sm);
+  transition: all 0.2s ease;
+}
+
+.report-chart-section:hover {
+  box-shadow: var(--shadow-md);
+}
+
 

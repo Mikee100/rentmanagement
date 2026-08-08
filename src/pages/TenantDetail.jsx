@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { tenantsAPI, paymentsAPI, configAPI, mpesaAPI, maintenanceAPI } from '../services/api';
+import { tenantsAPI, paymentsAPI, configAPI, mpesaAPI } from '../services/api';
 import { useToast } from '../components/Toast';
 import ConfirmModal from '../components/ConfirmModal';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -12,12 +12,10 @@ const TenantDetail = () => {
   const toast = useToast();
   const [tenant, setTenant] = useState(null);
   const [payments, setPayments] = useState([]);
-  const [maintenanceRequests, setMaintenanceRequests] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [activeTab, setActiveTab] = useState('overview');
   const [showDocumentModal, setShowDocumentModal] = useState(false);
-  const [showCommunicationModal, setShowCommunicationModal] = useState(false);
   const [showMpesaModal, setShowMpesaModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [mpesaLoading, setMpesaLoading] = useState(false);
@@ -33,12 +31,6 @@ const TenantDetail = () => {
     type: 'other',
     name: '',
     url: ''
-  });
-  const [communicationForm, setCommunicationForm] = useState({
-    type: 'email',
-    subject: '',
-    notes: '',
-    date: new Date().toISOString().split('T')[0]
   });
 
   useEffect(() => {
@@ -56,6 +48,7 @@ const TenantDetail = () => {
   };
 
   const fetchData = async () => {
+    setLoading(true);
     try {
       const [tenantRes, paymentsRes] = await Promise.all([
         tenantsAPI.getById(id),
@@ -63,21 +56,7 @@ const TenantDetail = () => {
       ]);
       setTenant(tenantRes.data);
       setPayments(paymentsRes.data);
-      
-      // Fetch maintenance requests for all houses
-      if (tenantRes.data.houses && tenantRes.data.houses.length > 0) {
-        try {
-          const houseIds = tenantRes.data.houses.map(h => h._id || h);
-          const maintenanceRes = await Promise.all(
-            houseIds.map(id => maintenanceAPI.getAll({ house: id }))
-          );
-          const allRequests = maintenanceRes.flatMap(res => res.data);
-          setMaintenanceRequests(allRequests);
-        } catch (error) {
-          console.error('Error fetching maintenance requests:', error);
-        }
-      }
-      
+
       setLoading(false);
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -97,29 +76,6 @@ const TenantDetail = () => {
     } catch (error) {
       console.error('Error adding document:', error);
       const errorMessage = error.response?.data?.message || 'Error adding document';
-      toast.error(errorMessage);
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleAddCommunication = async (e) => {
-    e.preventDefault();
-    setSubmitting(true);
-    try {
-      await tenantsAPI.addCommunication(id, communicationForm);
-      toast.success('Communication log added successfully');
-      setShowCommunicationModal(false);
-      setCommunicationForm({
-        type: 'email',
-        subject: '',
-        notes: '',
-        date: new Date().toISOString().split('T')[0]
-      });
-      fetchData();
-    } catch (error) {
-      console.error('Error adding communication:', error);
-      const errorMessage = error.response?.data?.message || 'Error adding communication';
       toast.error(errorMessage);
     } finally {
       setSubmitting(false);
@@ -201,11 +157,11 @@ const TenantDetail = () => {
 
   const totalPaid = payments
     .filter(p => p.status === 'paid')
-    .reduce((sum, p) => sum + (p.paidAmount || p.amount || 0) + (p.lateFee || 0), 0);
+    .reduce((sum, p) => sum + (p.paidAmount || p.amount || 0), 0);
   
   const totalPending = payments
     .filter(p => p.status === 'pending' || p.status === 'overdue' || p.status === 'partial')
-    .reduce((sum, p) => sum + (p.deficit || p.expectedAmount || p.amount || 0) + (p.lateFee || 0), 0);
+    .reduce((sum, p) => sum + (p.deficit || p.expectedAmount || p.amount || 0), 0);
   
   const totalDeficit = payments
     .reduce((sum, p) => sum + (p.deficit || 0), 0);
@@ -229,11 +185,6 @@ const TenantDetail = () => {
               <span className={`status-badge-compact status-${tenant.status}`}>
                 {tenant.status}
               </span>
-            </div>
-            <div className="tenant-contact-row">
-              <span className="contact-item">{tenant.email}</span>
-              <span className="contact-separator">•</span>
-              <span className="contact-item">{tenant.phone}</span>
             </div>
           </div>
         </div>
@@ -282,12 +233,6 @@ const TenantDetail = () => {
           <span>💳</span> Payments <span className="badge">{payments.length}</span>
         </button>
         <button
-          className={`tab-item ${activeTab === 'maintenance' ? 'active' : ''}`}
-          onClick={() => setActiveTab('maintenance')}
-        >
-          <span>🔧</span> Maintenance <span className="badge">{maintenanceRequests.length}</span>
-        </button>
-        <button
           className={`tab-item ${activeTab === 'house-history' ? 'active' : ''}`}
           onClick={() => setActiveTab('house-history')}
         >
@@ -298,12 +243,6 @@ const TenantDetail = () => {
           onClick={() => setActiveTab('documents')}
         >
           <span>📄</span> Documents <span className="badge">{tenant.documents?.length || 0}</span>
-        </button>
-        <button
-          className={`tab-item ${activeTab === 'communication' ? 'active' : ''}`}
-          onClick={() => setActiveTab('communication')}
-        >
-          <span>💬</span> Communication <span className="badge">{tenant.communicationLog?.length || 0}</span>
         </button>
         <button
           className={`tab-item ${activeTab === 'payment-info' ? 'active' : ''}`}
@@ -359,21 +298,6 @@ const TenantDetail = () => {
               </div>
             )}
 
-            {tenant.emergencyContact && (
-              <div className="info-section">
-                <h2 className="section-title">Emergency Contact</h2>
-                <div className="info-grid">
-                  <div className="info-item">
-                    <span className="info-label">Name</span>
-                    <span className="info-value">{tenant.emergencyContact.name}</span>
-                  </div>
-                  <div className="info-item">
-                    <span className="info-label">Phone</span>
-                    <span className="info-value">{tenant.emergencyContact.phone}</span>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         )}
 
@@ -388,7 +312,6 @@ const TenantDetail = () => {
                     <th>Paid</th>
                     <th>Deficit</th>
                     <th>Carried Forward</th>
-                    <th>Late Fee</th>
                     <th>Due Date</th>
                     <th>Status</th>
                     <th>Period</th>
@@ -409,7 +332,6 @@ const TenantDetail = () => {
                           KSh {(payment.deficit || 0).toLocaleString()}
                         </td>
                         <td>KSh {(payment.carriedForward || 0).toLocaleString()}</td>
-                        <td>KSh {(payment.lateFee || 0).toLocaleString()}</td>
                         <td>{new Date(payment.dueDate).toLocaleDateString()}</td>
                         <td>
                           <span className={`status-badge-modern status-${payment.status}`}>
@@ -424,44 +346,6 @@ const TenantDetail = () => {
                 </tbody>
               </table>
             </div>
-          </div>
-        )}
-
-        {activeTab === 'maintenance' && (
-          <div className="maintenance-content">
-            {maintenanceRequests.length === 0 ? (
-              <div className="empty-state-large">
-                <span className="empty-icon">🔧</span>
-                <p>No maintenance requests found for this tenant's house.</p>
-              </div>
-            ) : (
-              <div className="maintenance-list-modern">
-                {maintenanceRequests.map((request) => (
-                  <div key={request._id} className="maintenance-item-modern">
-                    <div className="maintenance-header-modern">
-                      <div>
-                        <h3>{request.title}</h3>
-                        <span className="maintenance-category">{request.category}</span>
-                      </div>
-                      <span className={`status-badge-modern status-${request.status}`}>
-                        {request.status}
-                      </span>
-                    </div>
-                    <p className="maintenance-description">{request.description}</p>
-                    <div className="maintenance-meta">
-                      <span className={`meta-tag priority-${request.priority}`}>Priority: {request.priority}</span>
-                      <span className="meta-tag">Requested: {new Date(request.requestedDate).toLocaleDateString()}</span>
-                      {request.completedDate && (
-                        <span className="meta-tag">Completed: {new Date(request.completedDate).toLocaleDateString()}</span>
-                      )}
-                      {request.cost > 0 && (
-                        <span className="meta-tag">Cost: KSh {(request.cost || 0).toLocaleString()}</span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
         )}
 
@@ -554,44 +438,6 @@ const TenantDetail = () => {
               <div className="empty-state-large">
                 <span className="empty-icon">📄</span>
                 <p>No documents uploaded</p>
-              </div>
-            )}
-          </div>
-        )}
-
-        {activeTab === 'communication' && (
-          <div className="communication-content">
-            <div className="section-header">
-              <h2 className="section-title">Communication Log</h2>
-              <button className="btn-primary-modern" onClick={() => setShowCommunicationModal(true)}>
-                + Add Log
-              </button>
-            </div>
-            {tenant.communicationLog && tenant.communicationLog.length > 0 ? (
-              <div className="communication-list-modern">
-                {tenant.communicationLog
-                  .sort((a, b) => new Date(b.date) - new Date(a.date))
-                  .map((log, index) => (
-                    <div key={index} className="communication-item-modern">
-                      <div className="communication-icon">{log.type === 'email' ? '📧' : log.type === 'phone' ? '📞' : '👤'}</div>
-                      <div className="communication-details">
-                        <div className="communication-header-modern">
-                          <h3>{log.subject}</h3>
-                          <span className="communication-type-badge">{log.type}</span>
-                        </div>
-                        <p className="communication-notes">{log.notes}</p>
-                        <div className="communication-footer">
-                          <span>{new Date(log.date).toLocaleDateString()}</span>
-                          {log.createdBy && <span>By: {log.createdBy}</span>}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-              </div>
-            ) : (
-              <div className="empty-state-large">
-                <span className="empty-icon">💬</span>
-                <p>No communication logs</p>
               </div>
             )}
           </div>
@@ -715,62 +561,6 @@ const TenantDetail = () => {
               <div className="form-actions">
                 <button type="submit" className="btn-primary-modern">Add Document</button>
                 <button type="button" className="btn-secondary-modern" onClick={() => setShowDocumentModal(false)}>
-                  Cancel
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {showCommunicationModal && (
-        <div className="modal-overlay" onClick={() => setShowCommunicationModal(false)}>
-          <div className="modal-content-modern" onClick={(e) => e.stopPropagation()}>
-            <h2>Add Communication Log</h2>
-            <form onSubmit={handleAddCommunication}>
-              <div className="form-group">
-                <label>Type</label>
-                <select
-                  value={communicationForm.type}
-                  onChange={(e) => setCommunicationForm({ ...communicationForm, type: e.target.value })}
-                  required
-                >
-                  <option value="email">Email</option>
-                  <option value="phone">Phone</option>
-                  <option value="in_person">In Person</option>
-                  <option value="other">Other</option>
-                </select>
-              </div>
-              <div className="form-group">
-                <label>Date</label>
-                <input
-                  type="date"
-                  value={communicationForm.date}
-                  onChange={(e) => setCommunicationForm({ ...communicationForm, date: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label>Subject</label>
-                <input
-                  type="text"
-                  value={communicationForm.subject}
-                  onChange={(e) => setCommunicationForm({ ...communicationForm, subject: e.target.value })}
-                  required
-                />
-              </div>
-              <div className="form-group">
-                <label>Notes</label>
-                <textarea
-                  value={communicationForm.notes}
-                  onChange={(e) => setCommunicationForm({ ...communicationForm, notes: e.target.value })}
-                  rows="4"
-                  required
-                />
-              </div>
-              <div className="form-actions">
-                <button type="submit" className="btn-primary-modern">Add Log</button>
-                <button type="button" className="btn-secondary-modern" onClick={() => setShowCommunicationModal(false)}>
                   Cancel
                 </button>
               </div>

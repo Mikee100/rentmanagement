@@ -1,14 +1,15 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Building2, MapPin, Users, Home, Settings,
   TrendingUp, CreditCard, AlertCircle, Plus,
   ChevronLeft, Edit3, Trash2, UserMinus,
-  UserPlus, Info, Wrench, Receipt, DollarSign
+  UserPlus, Info, Receipt, DollarSign
 } from 'lucide-react';
-import { apartmentsAPI, housesAPI, tenantsAPI, paymentsAPI, maintenanceAPI, expensesAPI, reportsAPI } from '../services/api';
+import { apartmentsAPI, housesAPI, paymentsAPI, reportsAPI } from '../services/api';
 import { useToast } from '../components/Toast';
+import { useAuth } from '../context/AuthContext';
 import ConfirmModal from '../components/ConfirmModal';
 import LoadingSpinner from '../components/LoadingSpinner';
 import OccupancyChart from '../components/charts/OccupancyChart';
@@ -45,13 +46,12 @@ const ApartmentDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
+  const { user, isSuperadmin } = useAuth();
   const [apartment, setApartment] = useState(null);
   const [houses, setHouses] = useState([]);
-  const [tenants, setTenants] = useState([]);
   const [payments, setPayments] = useState([]);
-  const [maintenanceRequests, setMaintenanceRequests] = useState([]);
-  const [expenses, setExpenses] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [pageError, setPageError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [unitFilter, setUnitFilter] = useState('all');
   const [unitSearch, setUnitSearch] = useState('');
@@ -81,7 +81,10 @@ const ApartmentDetail = () => {
     description: '',
     amenities: '',
   });
-  const [financialsView, setFinancialsView] = useState('history');
+  const [financialsView, setFinancialsView] = useState('collection');
+  const [batchPaymentMethod, setBatchPaymentMethod] = useState('cash');
+  const [collectionSearch, setCollectionSearch] = useState('');
+  const [collectionViewMode, setCollectionViewMode] = useState('grid');
   const [selectedHouses, setSelectedHouses] = useState([]);
   const [collectionMonth, setCollectionMonth] = useState(String(new Date().getMonth() + 1).padStart(2, '0'));
   const [collectionYear, setCollectionYear] = useState(new Date().getFullYear());
@@ -90,8 +93,28 @@ const ApartmentDetail = () => {
   const [loadingCollection, setLoadingCollection] = useState(false);
   const [financialHistory, setFinancialHistory] = useState([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
+  const [historyError, setHistoryError] = useState('');
   const [historyStatusFilter, setHistoryStatusFilter] = useState('all');
   const [historySearch, setHistorySearch] = useState('');
+  const [historyPage, setHistoryPage] = useState(1);
+  const [showRecordPaymentModal, setShowRecordPaymentModal] = useState(false);
+  const [selectedUnitForPayment, setSelectedUnitForPayment] = useState(null);
+  const [recordPaymentAmount, setRecordPaymentAmount] = useState(0);
+  const [recordPaymentMethod, setRecordPaymentMethod] = useState('cash');
+  const [collectionError, setCollectionError] = useState('');
+  const [compactMode, setCompactMode] = useState(() => {
+    const saved = localStorage.getItem('apartmentDetailCompactMode');
+    if (saved === 'true') return true;
+    if (saved === 'false') return false;
+    return true;
+  });
+
+  const HISTORY_PAGE_SIZE = 20;
+  const canManageAllUnits = isSuperadmin();
+  const canEditApartment = user?.role === 'superadmin' || user?.role === 'caretaker';
+  const dataRequestSeq = useRef(0);
+  const historyRequestSeq = useRef(0);
+  const collectionRequestSeq = useRef(0);
 
   useEffect(() => {
     fetchData();
@@ -106,19 +129,29 @@ const ApartmentDetail = () => {
 
   const fetchHistory = async () => {
     if (!id) return;
+    const requestId = ++historyRequestSeq.current;
+    setHistoryError('');
     setLoadingHistory(true);
     try {
       const res = await reportsAPI.getApartmentFinancialHistory(id);
+      if (requestId !== historyRequestSeq.current) return;
       setFinancialHistory(res.data);
     } catch (error) {
+      if (requestId !== historyRequestSeq.current) return;
       console.error('Error fetching financial history:', error);
+      const message = error.response?.data?.message || 'Could not load financial history.';
+      setHistoryError(message);
+      toast.error(message);
     } finally {
+      if (requestId !== historyRequestSeq.current) return;
       setLoadingHistory(false);
     }
   };
 
   const fetchCollectionReport = async () => {
     if (!id) return;
+    const requestId = ++collectionRequestSeq.current;
+    setCollectionError('');
     setLoadingCollection(true);
     try {
       const res = await reportsAPI.getMonthlyApartmentUnits({ 
@@ -126,56 +159,139 @@ const ApartmentDetail = () => {
         month: collectionMonth, 
         year: collectionYear 
       });
+      if (requestId !== collectionRequestSeq.current) return;
       setCollectionReport(res.data);
     } catch (error) {
+      if (requestId !== collectionRequestSeq.current) return;
       console.error('Error fetching collection report:', error);
+      const message = error.response?.data?.message || 'Could not load monthly collection report.';
+      setCollectionError(message);
+      toast.error(message);
     } finally {
+      if (requestId !== collectionRequestSeq.current) return;
       setLoadingCollection(false);
     }
   };
 
   const fetchData = async () => {
+    const requestId = ++dataRequestSeq.current;
+    setPageError('');
+    setLoading(true);
     try {
-      const [apartmentRes, housesRes, tenantsRes, paymentsRes, maintenanceRes, expensesRes] = await Promise.all([
+      const [apartmentRes, housesRes, paymentsRes] = await Promise.all([
         apartmentsAPI.getById(id),
         housesAPI.getByApartment(id),
-        tenantsAPI.getAll(),
         paymentsAPI.getByApartment(id).catch(() => ({ data: [] })),
-        maintenanceAPI.getAll({ apartment: id }).catch(() => ({ data: [] })),
-        expensesAPI.getByApartment(id).catch(() => ({ data: [] })),
       ]);
+      if (requestId !== dataRequestSeq.current) return;
       setApartment(apartmentRes.data.apartment);
       setHouses(housesRes.data);
-      setTenants(tenantsRes.data.filter((t) => {
-        const status = (t.status || '').toLowerCase();
-        return status === 'active';
-      }));
       setPayments(paymentsRes.data || []);
-      setMaintenanceRequests(maintenanceRes.data || []);
-      setExpenses(expensesRes.data || []);
       setLoading(false);
     } catch (error) {
+      if (requestId !== dataRequestSeq.current) return;
       console.error('Error fetching data:', error);
+      const message = error.response?.data?.message || 'Could not load apartment details.';
+      setPageError(message);
+      toast.error(message);
       setLoading(false);
     }
   };
 
+  useEffect(() => {
+    localStorage.setItem('apartmentDetailCompactMode', String(compactMode));
+  }, [compactMode]);
+
+  useEffect(() => {
+    setHistoryPage(1);
+  }, [historySearch, historyStatusFilter]);
+
+  const handleOpenPaymentModal = (unit) => {
+    setSelectedUnitForPayment(unit);
+    setRecordPaymentAmount(unit.totalExpected - unit.totalPaid);
+    setRecordPaymentMethod('cash');
+    setShowRecordPaymentModal(true);
+  };
+
+  const handleRecordSubmit = async (e) => {
+    e.preventDefault();
+    setBatchSubmitting(true);
+    try {
+      await paymentsAPI.create({
+        house: selectedUnitForPayment.houseId,
+        tenant: selectedUnitForPayment.tenantId, // Ensure tenant ID is passed
+        amount: parseFloat(recordPaymentAmount),
+        paymentMethod: recordPaymentMethod,
+        month: collectionMonth,
+        year: parseInt(collectionYear),
+        paymentDate: new Date()
+      });
+      toast.success("Payment recorded successfully");
+      setShowRecordPaymentModal(false);
+      fetchCollectionReport();
+      fetchData(); // Refresh history/overview
+      fetchHistory();
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to record payment");
+    } finally {
+      setBatchSubmitting(false);
+    }
+  };
+
+
+  const handleSelectAllUnpaid = () => {
+    if (!collectionReport?.units) return;
+    const unpaid = collectionReport.units
+      .filter((u) => !u.isCaretaker && !u.isCleared)
+      .map((u) => u.houseId);
+    setSelectedHouses(unpaid);
+  };
+
+  const handleSelectArrearsOnly = () => {
+    if (!collectionReport?.units) return;
+    const arrears = collectionReport.units
+      .filter((u) => !u.isCaretaker && !u.isCleared && u.carriedForward > 0)
+      .map((u) => u.houseId);
+    setSelectedHouses(arrears);
+  };
+
+  const handleDeselectAll = () => {
+    setSelectedHouses([]);
+  };
+
+  const selectedTotalSum = useMemo(() => {
+    if (!collectionReport?.units || !selectedHouses.length) return 0;
+    return collectionReport.units
+      .filter((u) => selectedHouses.includes(u.houseId))
+      .reduce((sum, u) => sum + (u.totalDeficit > 0 ? u.totalDeficit : u.totalExpected), 0);
+  }, [collectionReport, selectedHouses]);
 
   const handleSaveCollection = async () => {
-    if (selectedHouses.length === 0) return;
+    if (!id || selectedHouses.length === 0) return;
     
     setBatchSubmitting(true);
     try {
-      await paymentsAPI.batchMarkPaid({
+      const res = await paymentsAPI.batchMarkPaid({
         houseIds: selectedHouses,
         month: collectionMonth,
         year: parseInt(collectionYear),
-        paymentMethod: 'cash'
+        paymentMethod: batchPaymentMethod
       });
       
-      toast.success(`Marked ${selectedHouses.length} houses as paid`);
       setSelectedHouses([]);
-      fetchData();
+      await fetchData();
+      await fetchCollectionReport();
+      await fetchHistory();
+      
+      if (res.data.success > 0 && res.data.failed === 0) {
+        toast.success(`Marked ${res.data.success} unit(s) as paid via ${batchPaymentMethod.toUpperCase()}`);
+      } else if (res.data.success > 0 && res.data.failed > 0) {
+        toast.warning(`Partially successful: ${res.data.success} paid, ${res.data.failed} failed`);
+      } else if (res.data.failed > 0) {
+        toast.error(`Failed to process payments. ${res.data.failed} errors occurred.`);
+      } else {
+        toast.success('Batch update completed');
+      }
     } catch (error) {
       console.error('Error saving batch collection:', error);
       toast.error(error.response?.data?.message || 'Error saving batch collection');
@@ -625,19 +741,6 @@ const ApartmentDetail = () => {
     }
   };
 
-  const getStatusColor = (status) => {
-    switch (status) {
-      case 'available':
-        return '#16a34a';
-      case 'occupied':
-        return '#dc2626';
-      case 'maintenance':
-        return '#f59e0b';
-      default:
-        return '#94a3b8';
-    }
-  };
-
   // Calculate financial metrics
   const calculateFinancials = () => {
     const currentMonth = new Date().getMonth() + 1;
@@ -668,15 +771,12 @@ const ApartmentDetail = () => {
     });
     const ytdRevenue = ytdPayments.reduce((sum, p) => sum + (p.paidAmount || p.amount || 0), 0);
 
-    const lateFees = monthlyPayments.reduce((sum, p) => sum + (p.lateFee || 0), 0);
-
     return {
       monthlyRevenue,
       outstandingAmount,
       collectionRate,
       avgRent,
-      ytdRevenue,
-      lateFees
+      ytdRevenue
     };
   };
 
@@ -711,6 +811,33 @@ const ApartmentDetail = () => {
       });
   }, [filteredPayments, historyStatusFilter, historySearch]);
 
+  const historyTotalPages = useMemo(() => {
+    return Math.max(1, Math.ceil(paymentHistoryRows.length / HISTORY_PAGE_SIZE));
+  }, [paymentHistoryRows.length]);
+
+  const paginatedPaymentRows = useMemo(() => {
+    const start = (historyPage - 1) * HISTORY_PAGE_SIZE;
+    return paymentHistoryRows.slice(start, start + HISTORY_PAGE_SIZE);
+  }, [paymentHistoryRows, historyPage]);
+
+  useEffect(() => {
+    if (historyPage > historyTotalPages) {
+      setHistoryPage(historyTotalPages);
+    }
+  }, [historyPage, historyTotalPages]);
+
+  const collectionYearOptions = useMemo(() => {
+    const now = new Date().getFullYear();
+    const years = new Set([now - 2, now - 1, now, now + 1]);
+    years.add(Number(collectionYear));
+    financialHistory.forEach((item) => {
+      if (Number.isFinite(Number(item.year))) years.add(Number(item.year));
+    });
+    return Array.from(years)
+      .filter((y) => Number.isFinite(y))
+      .sort((a, b) => b - a);
+  }, [collectionYear, financialHistory]);
+
   // Filter units logic
   const filteredHouses = useMemo(() => {
     return houses.filter(house => {
@@ -728,81 +855,75 @@ const ApartmentDetail = () => {
     .slice()
     .sort((a, b) => new Date(b.paymentDate || 0) - new Date(a.paymentDate || 0))
     .slice(0, 8);
-  const activeMaintenance = maintenanceRequests.filter(m => m.status !== 'completed' && m.status !== 'cancelled').slice(0, 5);
 
   if (loading) return <LoadingSpinner text="Loading apartment details..." fullScreen />;
-  if (!apartment) return <div className="error-container">Apartment not found</div>;
+  if (!apartment) {
+    return (
+      <div className="error-container card-premium">
+        <h3>{pageError || 'Apartment not found'}</h3>
+        <button className="btn-primary" onClick={fetchData}>Retry</button>
+      </div>
+    );
+  }
 
   return (
-    <div className="apartment-premium-view">
-      {/* Hero Section */}
-      <header className="apartment-hero">
-        <div className="hero-top-nav">
-          <motion.button
-            initial={{ opacity: 0, x: -20 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="back-btn-minimal"
-            onClick={() => navigate('/apartments')}
-          >
-            <ChevronLeft size={20} /> Back to Buildings
-          </motion.button>
-          <motion.div
-            initial={{ opacity: 0, x: 20 }}
-            animate={{ opacity: 1, x: 0 }}
-            className="hero-actions"
-          >
-            <button className="action-btn-glass" onClick={handleEditApartment}>
-              <Edit3 size={16} /> Edit Building
+    <div className={`apartment-premium-view ${compactMode ? 'compact-mode' : ''}`}>
+      {/* Streamlined Building Control Center Header */}
+      <header className="apartment-control-header">
+        <div className="control-header-top">
+          <button className="back-btn-minimal" onClick={() => navigate('/apartments')}>
+            <ChevronLeft size={18} /> Back to Buildings
+          </button>
+          <div className="control-header-actions">
+            <button className="action-btn-glass" onClick={() => setCompactMode((prev) => !prev)}>
+              {compactMode ? 'Comfortable' : 'Compact'}
             </button>
-            <button className="action-btn-primary" onClick={() => { resetHouseForm(); setShowHouseModal(true); }}>
-              <Plus size={16} /> Add House
-            </button>
-          </motion.div>
+            {canEditApartment && (
+              <button className="action-btn-glass" onClick={handleEditApartment}>
+                <Edit3 size={15} /> Edit Building
+              </button>
+            )}
+            {canManageAllUnits && (
+              <button className="action-btn-primary" onClick={() => { resetHouseForm(); setShowHouseModal(true); }}>
+                <Plus size={15} /> Add House
+              </button>
+            )}
+          </div>
         </div>
 
-        <div className="hero-content">
-          <motion.div
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.1 }}
-            className="building-identity"
-          >
+        <div className="control-header-main">
+          <div className="building-identity">
             <div className="building-logo">
-              <Building2 size={32} color="white" />
+              <Building2 size={28} color="white" />
             </div>
             <div className="building-text">
               <h1 className="building-name">{apartment.name}</h1>
               <p className="building-address">
-                <MapPin size={14} /> {apartment.address}
+                <MapPin size={14} /> {apartment.address || 'Location not set'}
               </p>
             </div>
-          </motion.div>
+          </div>
 
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: 0.2 }}
-            className="building-quick-stats"
-          >
-            <div className="quick-stat-item">
-              <span className="qs-label">Occupancy</span>
-              <span className="qs-value">{houses.length > 0 ? Math.round((occupiedCount / houses.length) * 100) : 0}%</span>
+          <div className="building-header-pills">
+            <div className="header-pill">
+              <span className="pill-label">Occupancy</span>
+              <span className="pill-val">{houses.length > 0 ? Math.round((occupiedCount / houses.length) * 100) : 0}%</span>
             </div>
-            <div className="divider-v" />
-            <div className="quick-stat-item">
-              <span className="qs-label">Houses</span>
-              <span className="qs-value">{houses.length}</span>
+            <div className="header-pill">
+              <span className="pill-label">Total Units</span>
+              <span className="pill-val">{houses.length}</span>
             </div>
-            <div className="divider-v" />
-            <div className="quick-stat-item">
-              <span className="qs-label">Manager</span>
-              <span className="qs-value">{apartment.manager?.name || 'Not Assigned'}</span>
+            <div className="header-pill">
+              <span className="pill-label">Revenue ({new Date().toLocaleString('default', { month: 'short' })})</span>
+              <span className="pill-val text-success">KSh {(financials.monthlyRevenue || 0).toLocaleString()}</span>
             </div>
-          </motion.div>
+            <div className="header-pill">
+              <span className="pill-label">Manager</span>
+              <span className="pill-val">{apartment.manager?.name || 'Unassigned'}</span>
+            </div>
+          </div>
         </div>
       </header>
-
-      {/* Main Content Area */}
       <main className="apartment-main-grid">
         {/* Navigation Tabs */}
         <nav className="apartment-nav-pills">
@@ -810,7 +931,6 @@ const ApartmentDetail = () => {
             { id: 'overview', label: 'Dashboard', icon: TrendingUp },
             { id: 'units', label: `Houses (${houses.length})`, icon: Home },
             { id: 'payments', label: 'Financials', icon: CreditCard },
-            { id: 'maintenance', label: 'Maintenance', icon: Wrench },
             { id: 'settings', label: 'Settings', icon: Settings },
           ].map(tab => (
             <button
@@ -896,7 +1016,7 @@ const ApartmentDetail = () => {
                             <span className="activity-sub">House {p.house?.houseNumber} • {new Date(p.paymentDate).toLocaleDateString()}</span>
                           </div>
                           <div className="activity-amount">
-                            +KSh {(p.amount || 0).toLocaleString()}
+                            +KSh {(p.paidAmount || p.amount || 0).toLocaleString()}
                           </div>
                         </div>
                       ))}
@@ -1002,12 +1122,14 @@ const ApartmentDetail = () => {
                               <UserPlus size={16} />
                             </button>
                           )}
-                          <button className="u-action info" onClick={() => navigate(`/units/${house._id}`)} title="History">
+                          <button className="u-action info" onClick={() => navigate(`/houses/${house._id}`)} title="History">
                             <Info size={16} />
                           </button>
-                          <button className="u-action danger" onClick={() => handleDeleteHouse(house._id)} title="Delete">
-                            <Trash2 size={16} />
-                          </button>
+                          {canManageAllUnits && (
+                            <button className="u-action danger" onClick={() => handleDeleteHouse(house._id)} title="Delete">
+                              <Trash2 size={16} />
+                            </button>
+                          )}
                         </div>
                       </motion.div>
                     );
@@ -1022,30 +1144,33 @@ const ApartmentDetail = () => {
                   <div className="tab-left-actions">
                     <div className="view-switcher">
                       <button 
-                        className={`view-toggle-btn ${financialsView === 'history' ? 'active' : ''}`}
-                        onClick={() => setFinancialsView('history')}
-                      >
-                        Payment History
-                      </button>
-                      <button 
                         className={`view-toggle-btn ${financialsView === 'collection' ? 'active' : ''}`}
                         onClick={() => setFinancialsView('collection')}
                       >
-                        Monthly Collection
+                        <CreditCard size={15} /> Bulk Rent Collection Workspace
+                      </button>
+                      <button 
+                        className={`view-toggle-btn ${financialsView === 'history' ? 'active' : ''}`}
+                        onClick={() => setFinancialsView('history')}
+                      >
+                        <Receipt size={15} /> Payment History Ledger
+                      </button>
+                      <button 
+                        className={`view-toggle-btn ${financialsView === 'analytics' ? 'active' : ''}`}
+                        onClick={() => setFinancialsView('analytics')}
+                      >
+                        <TrendingUp size={15} /> Revenue Trends
                       </button>
                     </div>
-                    {financialsView === 'history' && (
-                      <button className="btn-secondary-sm" onClick={handleExportHistory}>
-                        <Receipt size={14} /> Export PDF
-                      </button>
-                    )}
                   </div>
-                               {financialsView === 'collection' && (
-                    <div className="collection-controls">
+
+                  <div className="collection-controls-right">
+                    {financialsView === 'collection' && (
                       <div className="period-selector">
                         <select 
                           value={collectionMonth} 
                           onChange={(e) => setCollectionMonth(e.target.value)}
+                          className="period-select"
                         >
                           <option value="01">Jan</option>
                           <option value="02">Feb</option>
@@ -1063,33 +1188,352 @@ const ApartmentDetail = () => {
                         <select 
                           value={collectionYear} 
                           onChange={(e) => setCollectionYear(e.target.value)}
+                          className="period-select"
                         >
-                          {[2024, 2025, 2026].map(y => (
+                          {collectionYearOptions.map(y => (
                             <option key={y} value={y}>{y}</option>
                           ))}
                         </select>
                       </div>
+                    )}
+
+                    {financialsView === 'history' && (
+                      <button className="btn-secondary-sm" onClick={handleExportHistory}>
+                        <Receipt size={14} /> Export History PDF
+                      </button>
+                    )}
+
+                    {financialsView === 'collection' && (
                       <button 
                         className="btn-secondary-sm" 
                         onClick={handleExportCollection}
                         disabled={loadingCollection || !collectionReport}
                       >
-                         <Receipt size={14} /> Export Table
+                        <Receipt size={14} /> Export Table PDF
                       </button>
-                      <button 
-                        className="btn-primary-sm" 
-                        disabled={selectedHouses.length === 0 || batchSubmitting}
-                        onClick={handleSaveCollection}
-                      >
-                        {batchSubmitting ? 'Saving...' : `Mark Paid (${selectedHouses.length})`}
-                      </button>
-                    </div>
-                  )}
+                    )}
+                  </div>
                 </div>
 
-                {financialsView === 'history' && (
+                {financialsView === 'collection' && (
+                  <div className="bulk-collection-workspace">
+                    {batchSubmitting && (
+                      <div className="workspace-overlay-loader">
+                        <LoadingSpinner text="Processing batch payments..." fullScreen />
+                      </div>
+                    )}
+
+                    {collectionError ? (
+                      <div className="inline-error-state">
+                        <span>{collectionError}</span>
+                        <button className="btn-secondary-sm" onClick={fetchCollectionReport}>Retry</button>
+                      </div>
+                    ) : loadingCollection ? (
+                      <div className="financials-loading">
+                        <LoadingSpinner text="Loading collection workspace..." />
+                      </div>
+                    ) : collectionReport ? (
+                      <>
+                        <div className="financial-stats-strip">
+                          <div className="stat-item gold">
+                            <div className="stat-icon"><Home size={16} /></div>
+                            <div className="stat-content">
+                              <span className="stat-label">Expected ({collectionMonth}/{collectionYear})</span>
+                              <span className="stat-val">KSh {(collectionReport.summary.totalExpected || 0).toLocaleString()}</span>
+                            </div>
+                          </div>
+                          <div className="stat-item success">
+                            <div className="stat-icon"><DollarSign size={16} /></div>
+                            <div className="stat-content">
+                              <span className="stat-label">Total Collected</span>
+                              <span className="stat-val">KSh {(collectionReport.summary.totalCollections || 0).toLocaleString()}</span>
+                            </div>
+                          </div>
+                          <div className="stat-item danger">
+                            <div className="stat-icon"><AlertCircle size={16} /></div>
+                            <div className="stat-content">
+                              <span className="stat-label">Current Deficit</span>
+                              <span className="stat-val">KSh {(collectionReport.summary.totalDeficit || 0).toLocaleString()}</span>
+                            </div>
+                          </div>
+                          <div className="stat-item purple">
+                            <div className="stat-icon"><TrendingUp size={16} /></div>
+                            <div className="stat-content">
+                              <span className="stat-label">Advance Received</span>
+                              <span className="stat-val">KSh {(collectionReport.summary.totalAdvance || 0).toLocaleString()}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Smart Bulk Selection Toolbar */}
+                        <div className="bulk-selection-toolbar">
+                          <div className="toolbar-left-presets">
+                            <span className="preset-label">Quick Select:</span>
+                            <button className="preset-btn" onClick={handleSelectAllUnpaid}>
+                              Select All Unpaid
+                            </button>
+                            <button className="preset-btn warning" onClick={handleSelectArrearsOnly}>
+                              Select Arrears Only
+                            </button>
+                            {selectedHouses.length > 0 && (
+                              <button className="preset-btn cancel" onClick={handleDeselectAll}>
+                                Clear Selection ({selectedHouses.length})
+                              </button>
+                            )}
+                          </div>
+
+                          <div className="toolbar-right-controls">
+                            <input
+                              type="text"
+                              placeholder="Search house or tenant..."
+                              value={collectionSearch}
+                              onChange={(e) => setCollectionSearch(e.target.value)}
+                              className="collection-search-input"
+                            />
+                            <div className="view-mode-toggle">
+                              <button
+                                className={`vm-btn ${collectionViewMode === 'grid' ? 'active' : ''}`}
+                                onClick={() => setCollectionViewMode('grid')}
+                                title="Grid View"
+                              >
+                                Grid
+                              </button>
+                              <button
+                                className={`vm-btn ${collectionViewMode === 'table' ? 'active' : ''}`}
+                                onClick={() => setCollectionViewMode('table')}
+                                title="Table View"
+                              >
+                                Table
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Units Workspace - Grid or Table */}
+                        {collectionViewMode === 'grid' ? (
+                          <div className="collection-units-grid">
+                            {collectionReport.units
+                              .filter((u) => !u.isCaretaker)
+                              .filter((u) => {
+                                if (!collectionSearch.trim()) return true;
+                                const q = collectionSearch.toLowerCase();
+                                return (
+                                  String(u.houseNumber || '').toLowerCase().includes(q) ||
+                                  String(u.tenantName || '').toLowerCase().includes(q)
+                                );
+                              })
+                              .map((unit) => {
+                                const isSelected = selectedHouses.includes(unit.houseId);
+                                const isPaid = unit.isCleared;
+
+                                return (
+                                  <div
+                                    key={unit.houseId}
+                                    className={`collection-unit-card ${isPaid ? 'paid' : ''} ${isSelected ? 'selected' : ''}`}
+                                    onClick={() => {
+                                      if (isPaid) return;
+                                      if (isSelected) {
+                                        setSelectedHouses((prev) => prev.filter((houseId) => houseId !== unit.houseId));
+                                      } else {
+                                        setSelectedHouses((prev) => (prev.includes(unit.houseId) ? prev : [...prev, unit.houseId]));
+                                      }
+                                    }}
+                                  >
+                                    <div className="unit-card-header">
+                                      <div className="unit-checkbox-wrapper">
+                                        <input
+                                          type="checkbox"
+                                          disabled={isPaid}
+                                          checked={isSelected}
+                                          onChange={(e) => {
+                                            e.stopPropagation();
+                                            if (e.target.checked) {
+                                              setSelectedHouses((prev) => (prev.includes(unit.houseId) ? prev : [...prev, unit.houseId]));
+                                            } else {
+                                              setSelectedHouses((prev) => prev.filter((houseId) => houseId !== unit.houseId));
+                                            }
+                                          }}
+                                        />
+                                        <span className="unit-number-tag">House {unit.houseNumber}</span>
+                                      </div>
+                                      <span className={`status-pill ${unit.totalDeficit === 0 ? 'paid' : unit.totalPaid > 0 ? 'partial' : 'unpaid'}`}>
+                                        {unit.totalDeficit === 0 ? 'Paid' : unit.totalPaid > 0 ? 'Partial' : 'Unpaid'}
+                                      </span>
+                                    </div>
+
+                                    <div className="unit-card-body">
+                                      <div className="tenant-info-row">
+                                        <span className="tenant-name">{unit.tenantName || 'No Active Tenant'}</span>
+                                      </div>
+                                      <div className="rent-breakdown-rows">
+                                        <div className="r-row">
+                                          <span>Base Rent:</span>
+                                          <span>KSh {(unit.rentAmount || 0).toLocaleString()}</span>
+                                        </div>
+                                        {(unit.carriedForward || 0) > 0 && (
+                                          <div className="r-row arrears">
+                                            <span>Carried Arrears:</span>
+                                            <span>KSh {unit.carriedForward.toLocaleString()}</span>
+                                          </div>
+                                        )}
+                                        <div className="r-row total">
+                                          <span>Total Expected:</span>
+                                          <span>KSh {(unit.totalExpected || 0).toLocaleString()}</span>
+                                        </div>
+                                      </div>
+                                    </div>
+
+                                    <div className="unit-card-footer" onClick={(e) => e.stopPropagation()}>
+                                      {!isPaid && (
+                                        <button
+                                          className="btn-record-single"
+                                          onClick={() => handleOpenPaymentModal(unit)}
+                                        >
+                                          Record Payment
+                                        </button>
+                                      )}
+                                      {isPaid && (
+                                        <span className="cleared-msg">Cleared for {collectionMonth}/{collectionYear}</span>
+                                      )}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                          </div>
+                        ) : (
+                          /* Table View */
+                          <div className="payments-table-container">
+                            <table className="premium-table collection-table">
+                              <thead>
+                                <tr>
+                                  <th>
+                                    <input 
+                                      type="checkbox"
+                                      onChange={(e) => {
+                                        if (e.target.checked) {
+                                          handleSelectAllUnpaid();
+                                        } else {
+                                          handleDeselectAll();
+                                        }
+                                      }}
+                                    />
+                                  </th>
+                                  <th>House</th>
+                                  <th>Tenant</th>
+                                  <th>Base Rent</th>
+                                  <th>Arrears</th>
+                                  <th>Total Expected</th>
+                                  <th>Status</th>
+                                  <th>Action</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {collectionReport.units
+                                  .filter((u) => !u.isCaretaker)
+                                  .filter((u) => {
+                                    if (!collectionSearch.trim()) return true;
+                                    const q = collectionSearch.toLowerCase();
+                                    return (
+                                      String(u.houseNumber || '').toLowerCase().includes(q) ||
+                                      String(u.tenantName || '').toLowerCase().includes(q)
+                                    );
+                                  })
+                                  .map((unit) => {
+                                    const isSelected = selectedHouses.includes(unit.houseId);
+                                    return (
+                                      <tr key={unit.houseId} className={unit.isCleared ? 'row-paid' : ''}>
+                                        <td>
+                                          <input 
+                                            type="checkbox" 
+                                            disabled={unit.isCleared}
+                                            checked={isSelected}
+                                            onChange={(e) => {
+                                              if (e.target.checked) {
+                                                setSelectedHouses((prev) => (prev.includes(unit.houseId) ? prev : [...prev, unit.houseId]));
+                                              } else {
+                                                setSelectedHouses((prev) => prev.filter((houseId) => houseId !== unit.houseId));
+                                              }
+                                            }}
+                                          />
+                                        </td>
+                                        <td><span className="unit-tag">{unit.houseNumber}</span></td>
+                                        <td>{unit.tenantName || '—'}</td>
+                                        <td>KSh {(unit.rentAmount || 0).toLocaleString()}</td>
+                                        <td>KSh {(unit.carriedForward || 0).toLocaleString()}</td>
+                                        <td><strong>KSh {(unit.totalExpected || 0).toLocaleString()}</strong></td>
+                                        <td>
+                                          <span className={`badge-status ${unit.totalDeficit === 0 ? 'paid' : unit.totalPaid > 0 ? 'partial' : 'unpaid'}`}>
+                                            {unit.totalDeficit === 0 ? 'paid' : unit.totalPaid > 0 ? 'partial' : 'unpaid'}
+                                          </span>
+                                        </td>
+                                        <td>
+                                          {!unit.isCleared && (
+                                            <button 
+                                              className="btn-primary-xs"
+                                              onClick={() => handleOpenPaymentModal(unit)}
+                                            >
+                                              Record Payment
+                                            </button>
+                                          )}
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+
+                        {/* Sticky / Floating Batch Payment Action Bar */}
+                        {selectedHouses.length > 0 && (
+                          <div className="floating-batch-bar">
+                            <div className="batch-bar-left">
+                              <span className="selected-count-badge">
+                                {selectedHouses.length} Units Selected
+                              </span>
+                              <div className="selected-total-sum">
+                                Total Collection: <strong>KSh {selectedTotalSum.toLocaleString()}</strong>
+                              </div>
+                            </div>
+
+                            <div className="batch-bar-right">
+                              <select
+                                value={batchPaymentMethod}
+                                onChange={(e) => setBatchPaymentMethod(e.target.value)}
+                                className="batch-method-select"
+                              >
+                                <option value="cash">Cash Payment</option>
+                                <option value="mpesa">M-Pesa</option>
+                                <option value="bank_transfer">Bank Transfer</option>
+                                <option value="cheque">Cheque</option>
+                              </select>
+
+                              <button
+                                className="btn-process-batch"
+                                disabled={batchSubmitting}
+                                onClick={handleSaveCollection}
+                              >
+                                {batchSubmitting ? 'Processing...' : `Process Batch (${selectedHouses.length})`}
+                              </button>
+
+                              <button className="btn-cancel-batch" onClick={handleDeselectAll}>
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="financials-empty">
+                        <AlertCircle size={18} />
+                        No collection report available for this period.
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {financialsView === 'analytics' && (
                   <div className="financial-analytics-section" style={{ display: 'grid', gridTemplateColumns: '1fr', gap: '2rem', marginBottom: '2rem' }}>
-                    {/* Trend Chart */}
                     <div className="trend-chart-wrapper card-premium" style={{ padding: '1.5rem' }}>
                       <div className="card-header-minimal" style={{ marginBottom: '1rem' }}>
                         <div className="header-with-icon" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -1213,70 +1657,38 @@ const ApartmentDetail = () => {
                   </div>
                 )}
 
-                {financialsView === 'collection' && (
-                  <>
-                    {loadingCollection ? (
-                      <div className="financials-loading">
-                        <LoadingSpinner text="Loading collection report..." />
+                {financialsView === 'history' && (
+                  <div className="payments-table-container" style={{ marginTop: '1.5rem' }}>
+                    <div className="financials-table-toolbar">
+                      <div className="financials-search">
+                        <input
+                          value={historySearch}
+                          onChange={(e) => setHistorySearch(e.target.value)}
+                          placeholder="Search tenant, house, method..."
+                        />
                       </div>
-                    ) : collectionReport ? (
-                      <div className="collection-summary-grid">
-                        <div className="summary-card gold">
-                          <span className="summary-label">Total Expected</span>
-                          <h4 className="summary-value">KSh {collectionReport.summary.totalExpected.toLocaleString()}</h4>
-                        </div>
-                        <div className="summary-card success">
-                          <span className="summary-label">Total Collected</span>
-                          <h4 className="summary-value">KSh {collectionReport.summary.totalPaid.toLocaleString()}</h4>
-                        </div>
-                        <div className="summary-card danger">
-                          <span className="summary-label">Total Deficit</span>
-                          <h4 className="summary-value">KSh {collectionReport.summary.totalDeficit.toLocaleString()}</h4>
-                        </div>
-                        <div className="summary-card purple">
-                          <span className="summary-label">Advance Collections</span>
-                          <h4 className="summary-value">KSh {collectionReport.summary.totalAdvance.toLocaleString()}</h4>
-                        </div>
-                        <div className="summary-card info">
-                          <span className="summary-label">Total Overpayments</span>
-                          <h4 className="summary-value">KSh {collectionReport.summary.totalOverpayment.toLocaleString()}</h4>
+                      <div className="financials-filters">
+                        <select value={historyStatusFilter} onChange={(e) => setHistoryStatusFilter(e.target.value)}>
+                          <option value="all">All statuses</option>
+                          <option value="paid">Paid</option>
+                          <option value="pending">Pending</option>
+                          <option value="partial">Partial</option>
+                          <option value="overdue">Overdue</option>
+                        </select>
+                        <div className="financials-count">
+                          Showing <strong>{paginatedPaymentRows.length}</strong> of {paymentHistoryRows.length}
                         </div>
                       </div>
-                    ) : (
-                      <div className="financials-empty">
-                        <AlertCircle size={18} />
-                        No collection report available for this period.
+                    </div>
+
+                    {historyError && (
+                      <div className="inline-error-state">
+                        <span>{historyError}</span>
+                        <button className="btn-secondary-sm" onClick={fetchHistory}>Retry</button>
                       </div>
                     )}
-                  </>
-                )}
 
-                <div className="payments-table-container">
-                  {financialsView === 'history' ? (
-                    <>
-                      <div className="financials-table-toolbar">
-                        <div className="financials-search">
-                          <input
-                            value={historySearch}
-                            onChange={(e) => setHistorySearch(e.target.value)}
-                            placeholder="Search tenant, house, method..."
-                          />
-                        </div>
-                        <div className="financials-filters">
-                          <select value={historyStatusFilter} onChange={(e) => setHistoryStatusFilter(e.target.value)}>
-                            <option value="all">All statuses</option>
-                            <option value="paid">Paid</option>
-                            <option value="pending">Pending</option>
-                            <option value="partial">Partial</option>
-                            <option value="overdue">Overdue</option>
-                          </select>
-                          <div className="financials-count">
-                            Showing <strong>{Math.min(paymentHistoryRows.length, 50)}</strong> of {paymentHistoryRows.length}
-                          </div>
-                        </div>
-                      </div>
-
-                      <table className="premium-table">
+                    <table className="premium-table">
                       <thead>
                         <tr>
                           <th>Date</th>
@@ -1295,139 +1707,46 @@ const ApartmentDetail = () => {
                             </td>
                           </tr>
                         ) : (
-                          paymentHistoryRows.slice(0, 50).map(p => (
+                          paginatedPaymentRows.map(p => (
                             <tr key={p._id}>
-                            <td>{p.paymentDate ? new Date(p.paymentDate).toLocaleDateString() : '-'}</td>
-                            <td>
-                              <div className="table-tenant-cell">
-                                <div className="mini-avatar">{p.tenant?.firstName?.[0]}</div>
-                                {p.tenant?.firstName} {p.tenant?.lastName}
-                              </div>
-                            </td>
-                            <td><span className="unit-tag">{p.house?.houseNumber}</span></td>
-                            <td><span className="amount-cell">KSh {(p.paidAmount || p.amount || 0).toLocaleString()}</span></td>
-                            <td><span className={`badge-status ${p.status}`}>{p.status}</span></td>
-                            <td>{p.paymentMethod || 'N/A'}</td>
-                          </tr>
+                              <td>{p.paymentDate ? new Date(p.paymentDate).toLocaleDateString() : '-'}</td>
+                              <td>
+                                <div className="table-tenant-cell">
+                                  <div className="mini-avatar">{p.tenant?.firstName?.[0]}</div>
+                                  {p.tenant?.firstName} {p.tenant?.lastName}
+                                </div>
+                              </td>
+                              <td><span className="unit-tag">{p.house?.houseNumber}</span></td>
+                              <td><span className="amount-cell">KSh {(p.paidAmount || p.amount || 0).toLocaleString()}</span></td>
+                              <td><span className={`badge-status ${p.status}`}>{p.status}</span></td>
+                              <td>{p.paymentMethod || 'N/A'}</td>
+                            </tr>
                           ))
                         )}
                       </tbody>
                     </table>
-                    </>
-                  ) : (
-                    <table className="premium-table collection-table">
-                      <thead>
-                        <tr>
-                          <th>
-                            <input 
-                              type="checkbox" 
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  const eligible = houses
-                                    .filter(h => h.tenant && (!isCaretakerHouseId || String(h._id) !== isCaretakerHouseId))
-                                    .filter((house) => {
-                                      const monthPayment = payments.find((p) =>
-                                        (p.house?._id === house._id || p.house === house._id) &&
-                                        p.month === collectionMonth &&
-                                        p.year === parseInt(collectionYear)
-                                      );
-                                      const isPaid = monthPayment?.status === 'paid' || monthPayment?.amount === 0;
-                                      return !isPaid;
-                                    })
-                                    .map(h => h._id);
-                                  setSelectedHouses(eligible);
-                                } else {
-                                  setSelectedHouses([]);
-                                }
-                              }}
-                            />
-                          </th>
-                          <th>House</th>
-                          <th>Tenant</th>
-                          <th>Rent Amount</th>
-                          <th>Status ({collectionMonth}/{collectionYear})</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {houses.filter(h => h.tenant && (!apartment?.caretakerHouse || String(h._id) !== String(apartment.caretakerHouse))).map(house => {
-                          const monthPayment = payments.find(p => 
-                            p.house?._id === house._id && 
-                            p.month === collectionMonth && 
-                            p.year === parseInt(collectionYear)
-                          );
-                          const isPaid = monthPayment?.status === 'paid' || monthPayment?.amount === 0;
-                          
-                          return (
-                            <tr key={house._id} className={`${isPaid ? 'row-paid' : ''}`}>
-                              <td>
-                                <input 
-                                  type="checkbox" 
-                                  disabled={isPaid}
-                                  checked={selectedHouses.includes(house._id)}
-                                  onChange={(e) => {
-                                    if (e.target.checked) {
-                                      setSelectedHouses([...selectedHouses, house._id]);
-                                    } else {
-                                      setSelectedHouses(selectedHouses.filter(id => id !== house._id));
-                                    }
-                                  }}
-                                />
-                              </td>
-                              <td><span className="unit-tag">{house.houseNumber}</span></td>
-                              <td>{house.tenant?.firstName} {house.tenant?.lastName}</td>
-                              <td>
-                                KSh {house.rentAmount?.toLocaleString()}
-                              </td>
-                              <td>
-                                <span className={`badge-status ${monthPayment?.status || 'unpaid'}`}>
-                                  {monthPayment?.status || 'unpaid'}
-                                </span>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                      <tfoot>
-                        <tr className="summary-row-footer">
-                          <td></td>
-                          <td><strong>TOTALS</strong></td>
-                          <td></td>
-                          <td>
-                            <strong>KSh {collectionReport?.summary?.totalExpected.toLocaleString()}</strong>
-                          </td>
-                          <td>
-                            <div className="footer-status-summary">
-                              <span className="text-success">Paid: KSh {collectionReport?.summary?.totalPaid.toLocaleString()}</span>
-                              <span className="text-danger">Deficit: KSh {collectionReport?.summary?.totalDeficit.toLocaleString()}</span>
-                            </div>
-                          </td>
-                        </tr>
-                      </tfoot>
-                    </table>
-                  )}
-                </div>
-              </div>
-            )}
 
-            {activeTab === 'maintenance' && (
-              <div className="maintenance-tab-view">
-                <div className="maintenance-grid">
-                  {maintenanceRequests.map(m => (
-                    <div key={m._id} className="maintenance-card-premium card-premium">
-                      <div className="m-card-header">
-                        <div className={`m-priority-indicator ${m.priority}`} />
-                        <span className="m-category">{m.category}</span>
-                        <span className={`m-status-badge ${m.status}`}>{m.status}</span>
+                    {paymentHistoryRows.length > 0 && (
+                      <div className="table-pagination-row">
+                        <button
+                          className="btn-secondary-sm"
+                          onClick={() => setHistoryPage((p) => Math.max(1, p - 1))}
+                          disabled={historyPage === 1}
+                        >
+                          Previous
+                        </button>
+                        <span className="table-page-indicator">Page {historyPage} of {historyTotalPages}</span>
+                        <button
+                          className="btn-secondary-sm"
+                          onClick={() => setHistoryPage((p) => Math.min(historyTotalPages, p + 1))}
+                          disabled={historyPage === historyTotalPages}
+                        >
+                          Next
+                        </button>
                       </div>
-                      <h4 className="m-title">{m.title}</h4>
-                      <p className="m-desc">{m.description}</p>
-                      <div className="m-footer">
-                        <span className="m-unit"><Home size={12} /> House {m.house?.houseNumber}</span>
-                        <span className="m-date">{new Date(m.requestedDate).toLocaleDateString()}</span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
@@ -1462,28 +1781,37 @@ const ApartmentDetail = () => {
 
                   <div className="divider-h" />
 
-                  <section className="settings-section">
-                    <h4>Global Rent Update</h4>
-                    <p className="settings-help-text">
-                      Setting a global rent will update the rent amount for <strong>ALL</strong> houses in this apartment building simultaneously.
-                    </p>
-                    <form onSubmit={handleApplyGlobalRent} className="inline-form-premium">
-                      <div className="form-group-premium">
-                        <label>New Rent Amount (KSh)</label>
-                        <div className="input-with-button">
-                          <input 
-                            type="number" 
-                            placeholder="e.g. 15000"
-                            value={globalRentAmount}
-                            onChange={(e) => setGlobalRentAmount(e.target.value)}
-                          />
-                          <button type="submit" className="btn-primary" disabled={submitting}>
-                            Apply to All Houses
-                          </button>
+                  {canManageAllUnits ? (
+                    <section className="settings-section">
+                      <h4>Global Rent Update</h4>
+                      <p className="settings-help-text">
+                        Setting a global rent will update the rent amount for <strong>ALL</strong> houses in this apartment building simultaneously.
+                      </p>
+                      <form onSubmit={handleApplyGlobalRent} className="inline-form-premium">
+                        <div className="form-group-premium">
+                          <label>New Rent Amount (KSh)</label>
+                          <div className="input-with-button">
+                            <input 
+                              type="number" 
+                              placeholder="e.g. 15000"
+                              value={globalRentAmount}
+                              onChange={(e) => setGlobalRentAmount(e.target.value)}
+                            />
+                            <button type="submit" className="btn-primary" disabled={submitting}>
+                              Apply to All Houses
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    </form>
-                  </section>
+                      </form>
+                    </section>
+                  ) : (
+                    <section className="settings-section">
+                      <h4>Global Rent Update</h4>
+                      <p className="settings-help-text">
+                        Only superadmin users can apply global rent updates.
+                      </p>
+                    </section>
+                  )}
                 </div>
               </div>
             )}
@@ -1684,6 +2012,75 @@ const ApartmentDetail = () => {
         cancelText="Cancel"
         type="warning"
       />
+
+      {/* Record Payment Modal */}
+      {showRecordPaymentModal && selectedUnitForPayment && (
+        <div className="modal-overlay" onClick={() => setShowRecordPaymentModal(false)}>
+          <div className="modal-premium" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-premium-header">
+              <h2>Record Payment - House {selectedUnitForPayment.houseNumber}</h2>
+              <button className="btn-close-sm" onClick={() => setShowRecordPaymentModal(false)}>×</button>
+            </div>
+            <form onSubmit={handleRecordSubmit}>
+              <div className="modal-premium-body">
+                <div className="payment-breakdown-box" style={{ background: '#f8fafc', padding: '15px', borderRadius: '8px', marginBottom: '20px' }}>
+                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                      <span style={{ color: '#64748b' }}>Monthly Rent:</span>
+                      <span style={{ fontWeight: '600' }}>KSh {selectedUnitForPayment.rentAmount.toLocaleString()}</span>
+                   </div>
+                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                      <span style={{ color: '#64748b' }}>Arrears/Deficit:</span>
+                      <span style={{ fontWeight: '600', color: selectedUnitForPayment.carriedForward > 0 ? '#e11d48' : 'inherit' }}>
+                        KSh {selectedUnitForPayment.carriedForward.toLocaleString()}
+                      </span>
+                   </div>
+                   <div className="divider-h" style={{ margin: '10px 0' }} />
+                   <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '1.1rem' }}>
+                      <span style={{ fontWeight: '700' }}>Total Expected:</span>
+                      <span style={{ fontWeight: '800', color: '#4f46e5' }}>KSh {selectedUnitForPayment.totalExpected.toLocaleString()}</span>
+                   </div>
+                </div>
+
+                <div className="form-group-premium">
+                  <label>Amount Received (KSh)</label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={recordPaymentAmount}
+                    onChange={(e) => setRecordPaymentAmount(e.target.value)}
+                    required
+                    autoFocus
+                    style={{ fontSize: '1.25rem', padding: '12px', fontWeight: '700' }}
+                  />
+                  <p className="help-text">Enter the actual cash/transfer amount received from the tenant.</p>
+                </div>
+
+                <div className="form-group-premium">
+                  <label>Payment Method</label>
+                  <select
+                    value={recordPaymentMethod}
+                    onChange={(e) => setRecordPaymentMethod(e.target.value)}
+                    className="premium-select"
+                  >
+                    <option value="cash">Cash</option>
+                    <option value="mpesa">M-Pesa</option>
+                    <option value="bank_transfer">Bank Transfer</option>
+                    <option value="cheque">Cheque</option>
+                  </select>
+                </div>
+              </div>
+              <div className="modal-premium-footer">
+                <button type="button" className="btn-secondary" onClick={() => setShowRecordPaymentModal(false)}>
+                  Cancel
+                </button>
+                <button type="submit" className="btn-primary" disabled={batchSubmitting}>
+                  {batchSubmitting ? 'Recording...' : 'Record Payment'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {submitting && <LoadingSpinner fullScreen />}
     </div>

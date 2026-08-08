@@ -10,15 +10,13 @@ import ApartmentDetail from './pages/ApartmentDetail';
 import Tenants from './pages/Tenants';
 import TenantDetail from './pages/TenantDetail';
 import Payments from './pages/Payments';
-import Maintenance from './pages/Maintenance';
-import Expenses from './pages/Expenses';
-import PaybillConfig from './pages/PaybillConfig';
 import Users from './pages/Users';
 import Reports from './pages/Reports';
+import ReportsHome from './pages/ReportsHome';
 import ActivityLogs from './pages/ActivityLogs';
-import EquityBankTest from './pages/EquityBankTest';
 import AssignTenant from './pages/AssignTenant';
 import UnitDetail from './pages/UnitDetail';
+import { isFeatureEnabled } from './config/features';
 
 // Protected Route Component
 const ProtectedRoute = ({ children, allowedRoles }) => {
@@ -93,9 +91,16 @@ function App() {
                         <Route path="/tenants" element={<Tenants />} />
                         <Route path="/tenants/:id" element={<TenantDetail />} />
                         <Route path="/payments" element={<Payments />} />
-                        <Route path="/maintenance" element={<Maintenance />} />
-                        <Route path="/expenses" element={<Expenses />} />
-                        <Route path="/reports" element={<Reports />} />
+                        <Route path="/reports" element={<ReportsHome />} />
+                        <Route path="/reports/income-statement" element={<Reports forcedTab="income" standalone />} />
+                        <Route path="/reports/outstanding-balances" element={<Reports forcedTab="outstanding" standalone />} />
+                        <Route path="/reports/revenue-by-apartment" element={<Reports forcedTab="revenue" standalone />} />
+                        <Route path="/reports/tenant-ledger" element={<Reports forcedTab="ledger" standalone />} />
+                        <Route path="/reports/monthly-houses" element={<Reports forcedTab="apartment-units" standalone />} />
+                        <Route path="/reports/monthly-apartments" element={<Reports forcedTab="apartments-monthly" standalone />} />
+                        {!isFeatureEnabled('maintenance') && <Route path="/maintenance" element={<Navigate to="/dashboard" replace />} />}
+                        {!isFeatureEnabled('expenses') && <Route path="/expenses" element={<Navigate to="/dashboard" replace />} />}
+                        {!isFeatureEnabled('equityBank') && <Route path="/equity-bank-test" element={<Navigate to="/dashboard" replace />} />}
                         <Route 
                           path="/users" 
                           element={
@@ -112,22 +117,7 @@ function App() {
                             </ProtectedRoute>
                           } 
                         />
-                        <Route 
-                          path="/paybill-config" 
-                          element={
-                            <ProtectedRoute allowedRoles={['superadmin']}>
-                              <PaybillConfig />
-                            </ProtectedRoute>
-                          } 
-                        />
-                        <Route 
-                          path="/equity-bank-test" 
-                          element={
-                            <ProtectedRoute allowedRoles={['superadmin', 'admin']}>
-                              <EquityBankTest />
-                            </ProtectedRoute>
-                          } 
-                        />
+                        <Route path="*" element={<Navigate to="/dashboard" replace />} />
                       </Routes>
                     </Layout>
                   </ProtectedRoute>

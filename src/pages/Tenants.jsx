@@ -16,11 +16,8 @@ const Tenants = () => {
   const [filteredTenants, setFilteredTenants] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
-  const [viewMode, setViewMode] = useState('table'); // 'table' or 'grid'
   const [selectedApartment, setSelectedApartment] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all'); // all|active|inactive|past
-  const [assignmentFilter, setAssignmentFilter] = useState('all'); // all|assigned|unassigned
-  const [sortBy, setSortBy] = useState('name'); // name|leaseEnd
   const [searchQuery, setSearchQuery] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
@@ -52,13 +49,13 @@ const Tenants = () => {
 
   useEffect(() => {
     filterTenants();
-  }, [tenants, selectedApartment, statusFilter, assignmentFilter, sortBy, searchQuery]);
+  }, [tenants, selectedApartment, statusFilter, searchQuery]);
 
   const fetchData = async () => {
     try {
-      const apartmentId = isCaretaker() && user?.apartment?._id ? user.apartment._id : null;
+      // Always fetch all tenants, filter on frontend for apartment
       const [tenantsRes, apartmentsRes] = await Promise.all([
-        tenantsAPI.getAll(selectedApartment !== 'all' ? selectedApartment : apartmentId),
+        tenantsAPI.getAll(),
         apartmentsAPI.getAll()
       ]);
       setTenants(tenantsRes.data);
@@ -73,26 +70,37 @@ const Tenants = () => {
   const filterTenants = () => {
     let filtered = [...tenants];
 
+    const normalizeId = (value) => {
+      if (!value) return '';
+      if (typeof value === 'string') return value;
+      if (typeof value === 'object') {
+        if (value._id) return String(value._id);
+        if (value.id) return String(value.id);
+      }
+      return String(value);
+    };
+
+    const getHouseApartmentId = (house) => {
+      if (!house || !house.apartment) return '';
+      return normalizeId(house.apartment);
+    };
+
     // Filter by apartment
-if (selectedApartment !== 'all') {
-      filtered = filtered.filter(tenant => 
-        tenant.houses?.some(h => 
-          h.apartment?._id === selectedApartment || 
-          h.apartment === selectedApartment
-        )
-      );
+    if (selectedApartment !== 'all') {
+      const selectedApartmentId = normalizeId(selectedApartment);
+      filtered = filtered.filter((tenant) => {
+        const candidateHouses = Array.isArray(tenant.houses)
+          ? tenant.houses
+          : tenant.house
+            ? [tenant.house]
+            : [];
+        return candidateHouses.some((house) => getHouseApartmentId(house) === selectedApartmentId);
+      });
     }
 
     // Filter by status
     if (statusFilter !== 'all') {
       filtered = filtered.filter((t) => String(t.status || '').toLowerCase() === statusFilter);
-    }
-
-    // Filter by assignment
-    if (assignmentFilter === 'assigned') {
-      filtered = filtered.filter((t) => Boolean(t.house));
-    } else if (assignmentFilter === 'unassigned') {
-      filtered = filtered.filter((t) => !t.house);
     }
 
     // Filter by search query
@@ -103,17 +111,11 @@ if (selectedApartment !== 'all') {
         (tenant.lastName || '').toLowerCase().includes(query) ||
         (tenant.email || '').toLowerCase().includes(query) ||
         (tenant.phone || '').includes(query) ||
-        (tenant.house?.houseNumber || '').toLowerCase().includes(query)
+        ((tenant.houses && tenant.houses[0]?.houseNumber) || tenant.house?.houseNumber || '').toLowerCase().includes(query)
       );
     }
 
-    // Sort
     filtered.sort((a, b) => {
-      if (sortBy === 'leaseEnd') {
-        const aDate = a.leaseEndDate ? new Date(a.leaseEndDate).getTime() : 0;
-        const bDate = b.leaseEndDate ? new Date(b.leaseEndDate).getTime() : 0;
-        return bDate - aDate;
-      }
       const aName = `${a.firstName || ''} ${a.lastName || ''}`.trim().toLowerCase();
       const bName = `${b.firstName || ''} ${b.lastName || ''}`.trim().toLowerCase();
       return aName.localeCompare(bName);
@@ -205,38 +207,14 @@ if (selectedApartment !== 'all') {
   }
 
   const totalTenants = tenants.length;
-  const activeTenants = tenants.filter((t) => String(t.status || '').toLowerCase() === 'active').length;
-  const inactiveTenants = tenants.filter((t) => String(t.status || '').toLowerCase() === 'inactive').length;
-  const pastTenants = tenants.filter((t) => String(t.status || '').toLowerCase() === 'past').length;
-  const assignedTenants = tenants.filter((t) => Boolean(t.house)).length;
-  const unassignedTenants = totalTenants - assignedTenants;
 
   return (
     <div className="tenants-page">
-      <div className="tenants-header card-premium">
-        <div className="header-left">
-          <div>
-            <h1>Tenants</h1>
-            <div className="tenants-subtitle">
-              Showing <strong>{filteredTenants.length}</strong> of {totalTenants}
-            </div>
-          </div>
-          <div className="summary-chips">
-            <button className={`chip ${statusFilter === 'all' ? 'active' : ''}`} onClick={() => setStatusFilter('all')}>
-              All <span className="chip-count">{totalTenants}</span>
-            </button>
-            <button className={`chip chip-success ${statusFilter === 'active' ? 'active' : ''}`} onClick={() => setStatusFilter('active')}>
-              Active <span className="chip-count">{activeTenants}</span>
-            </button>
-            <button className={`chip chip-warn ${statusFilter === 'inactive' ? 'active' : ''}`} onClick={() => setStatusFilter('inactive')}>
-              Inactive <span className="chip-count">{inactiveTenants}</span>
-            </button>
-            <button className={`chip chip-neutral ${statusFilter === 'past' ? 'active' : ''}`} onClick={() => setStatusFilter('past')}>
-              Past <span className="chip-count">{pastTenants}</span>
-            </button>
-            <button className={`chip chip-info ${assignmentFilter === 'unassigned' ? 'active' : ''}`} onClick={() => setAssignmentFilter(assignmentFilter === 'unassigned' ? 'all' : 'unassigned')}>
-              Unassigned <span className="chip-count">{unassignedTenants}</span>
-            </button>
+      <div className="tenants-header">
+        <div>
+          <h1>Tenants</h1>
+          <div className="tenants-subtitle">
+            Showing <strong>{filteredTenants.length}</strong> of {totalTenants}
           </div>
         </div>
         <button className="btn-primary" onClick={() => { resetForm(); setShowModal(true); }}>
@@ -244,236 +222,127 @@ if (selectedApartment !== 'all') {
         </button>
       </div>
 
-      {/* Filters and Controls */}
-      <div className="tenants-controls card-premium">
-        <div className="controls-left">
-          <div className="search-box">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="11" cy="11" r="8"/>
-              <path d="m21 21-4.35-4.35"/>
-            </svg>
-            <input
-              type="text"
-              placeholder="Search name, email, phone, house..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-            />
-          </div>
-          {(!isCaretaker() || isSuperadmin()) ? (
-            <select
-              className="filter-select"
-              value={selectedApartment}
-              onChange={(e) => setSelectedApartment(e.target.value)}
-            >
-              <option value="all">All Apartments</option>
-              {apartments.map(apt => (
-                <option key={apt._id} value={apt._id}>{apt.name}</option>
-              ))}
-            </select>
-          ) : (
-            <div className="filter-readonly">
-              <span className="apartment-badge">{user?.apartment?.name || 'Dansu 2011'}</span>
-              <small>✓ Showing your apartment tenants</small>
-            </div>
-          )}
-          <select className="filter-select" value={assignmentFilter} onChange={(e) => setAssignmentFilter(e.target.value)}>
-            <option value="all">All Assignments</option>
-            <option value="assigned">Assigned</option>
-            <option value="unassigned">Unassigned</option>
+      <div className="tenants-filter-bar">
+        <input
+          type="text"
+          placeholder="Search name, email, phone, house..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          className="tenants-search"
+        />
+        {(!isCaretaker() || isSuperadmin()) ? (
+          <select
+            className="filter-select"
+            value={selectedApartment}
+            onChange={(e) => setSelectedApartment(e.target.value)}
+          >
+            <option value="all">All Apartments</option>
+            {apartments.map(apt => (
+              <option key={apt._id} value={apt._id}>{apt.name}</option>
+            ))}
           </select>
-          <select className="filter-select" value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
-            <option value="name">Sort: Name</option>
-            <option value="leaseEnd">Sort: Lease End</option>
-          </select>
-        </div>
-        <div className="controls-right">
-          <div className="view-toggle">
-            <button
-              className={`view-btn ${viewMode === 'table' ? 'active' : ''}`}
-              onClick={() => setViewMode('table')}
-              title="Table View"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M9 3H5a2 2 0 0 0-2 2v4m6-6h10a2 2 0 0 1 2 2v4M9 3v18m0 0h10a2 2 0 0 0 2-2V9M9 21H5a2 2 0 0 1-2-2V9m0 0h18"/>
-              </svg>
-            </button>
-            <button
-              className={`view-btn ${viewMode === 'grid' ? 'active' : ''}`}
-              onClick={() => setViewMode('grid')}
-              title="Grid View"
-            >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                <rect x="3" y="3" width="7" height="7"/>
-                <rect x="14" y="3" width="7" height="7"/>
-                <rect x="14" y="14" width="7" height="7"/>
-                <rect x="3" y="14" width="7" height="7"/>
-              </svg>
-            </button>
+        ) : (
+          <div className="filter-readonly">
+            <span className="apartment-badge">{user?.apartment?.name || 'Dansu 2011'}</span>
+            <small>✓ Your apartment</small>
           </div>
-        </div>
+        )}
+        <select className="filter-select" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
+          <option value="all">All Statuses</option>
+          <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
+          <option value="past">Past</option>
+        </select>
+        <button
+          className="btn-secondary"
+          onClick={() => {
+            setSelectedApartment('all');
+            setSearchQuery('');
+            setStatusFilter('all');
+          }}
+        >
+          Clear
+        </button>
       </div>
 
-      {/* Content */}
       {filteredTenants.length === 0 ? (
         <div className="empty-state">
-          <span className="empty-icon">👤</span>
-          {isCaretaker() ? (
-            <>
-              <h3>No tenants assigned yet</h3>
-              <p>Assign tenants to houses from the <strong>Apartment Detail</strong> page.</p>
-              <div className="empty-actions">
-                <button 
-                  className="btn-primary" 
-                  onClick={() => navigate('/apartments')}
-                >
-                  Go to Apartments →
-                </button>
-                <button 
-                  className="btn-secondary" 
-                  onClick={() => { 
-                    setSelectedApartment('all'); 
-                    setSearchQuery(''); 
-                    setStatusFilter('all'); 
-                    setAssignmentFilter('all'); 
-                  }}
-                >
-                  Clear Filters
-                </button>
-              </div>
-            </>
-          ) : (
-            <>
-              <p>No tenants found</p>
-              {(selectedApartment !== 'all' || searchQuery || statusFilter !== 'all' || assignmentFilter !== 'all') ? (
-                <button
-                  className="btn-secondary"
-                  onClick={() => { setSelectedApartment('all'); setSearchQuery(''); setStatusFilter('all'); setAssignmentFilter('all'); }}
-                >
-                  Clear Filters
-                </button>
-              ) : null}
-            </>
-          )}
+          <p>No tenants found</p>
+          <button
+            className="btn-secondary"
+            onClick={() => {
+              setSelectedApartment('all');
+              setSearchQuery('');
+              setStatusFilter('all');
+            }}
+          >
+            Clear Filters
+          </button>
         </div>
-      ) : viewMode === 'table' ? (
-        <div className="table-container card-premium">
+      ) : (
+        <div className="table-container">
           <table className="tenants-table">
             <thead>
               <tr>
                 <th>Name</th>
-                <th>Contact</th>
                 <th>House</th>
-                <th>Lease Period</th>
                 <th>Status</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
-              {filteredTenants.map((tenant) => (
-                <tr key={tenant._id} onClick={() => navigate(`/tenants/${tenant._id}`)}>
-                  <td>
-                    <div className="tenant-name-cell">
-                      <div className="tenant-avatar-small">
-                        {(tenant.firstName || '?')[0]}{(tenant.lastName || '?')[0]}
+              {filteredTenants.map((tenant) => {
+                const primaryHouse = (tenant.houses && tenant.houses.length > 0) ? tenant.houses[0] : tenant.house;
+                let apartmentName = 'N/A';
+                if (primaryHouse && primaryHouse.apartment && primaryHouse.apartment.name) {
+                  apartmentName = primaryHouse.apartment.name;
+                } else if (primaryHouse && primaryHouse.apartment) {
+                  const apartmentId = typeof primaryHouse.apartment === 'object'
+                    ? String(primaryHouse.apartment._id || primaryHouse.apartment.id || '')
+                    : String(primaryHouse.apartment);
+                  const apt = apartments.find(a => String(a._id) === apartmentId);
+                  if (apt) apartmentName = apt.name;
+                }
+                return (
+                  <tr key={tenant._id} onClick={() => navigate(`/tenants/${tenant._id}`)}>
+                    <td>
+                      <div className="tenant-name-simple">
+                        <div>{tenant.firstName} {tenant.lastName}</div>
                       </div>
-                      <div>
-                        <div className="name">{tenant.firstName} {tenant.lastName}</div>
-                        <div className="email-small">{tenant.email}</div>
+                    </td>
+                    <td>
+                      {primaryHouse ? (
+                        <div className="house-cell-simple">
+                          <span>{primaryHouse.houseNumber}</span>
+                          <small>{apartmentName}</small>
+                        </div>
+                      ) : (
+                        <span className="not-assigned">Not Assigned</span>
+                      )}
+                    </td>
+                    <td>
+                      <span className={`status-badge status-${tenant.status}`}>
+                        {tenant.status}
+                      </span>
+                    </td>
+                    <td onClick={(e) => e.stopPropagation()}>
+                      <div className="table-actions">
+                        <button className="btn-view-small" onClick={() => navigate(`/tenants/${tenant._id}`)} title="View details">
+                          View
+                        </button>
+                        <button className="btn-edit-small" onClick={() => handleEdit(tenant)} title="Edit tenant">
+                          Edit
+                        </button>
+                        <button className="btn-delete-small" onClick={() => handleDelete(tenant._id)} title="Delete tenant">
+                          Delete
+                        </button>
                       </div>
-                    </div>
-                  </td>
-                  <td>
-                    <div className="contact-cell">
-                      <span>{tenant.phone}</span>
-                    </div>
-                  </td>
-                  <td>
-                    {tenant.house ? (
-                      <div className="house-cell">
-                        <span className="house-number">{tenant.house.houseNumber}</span>
-                        <span className="apartment-name">{tenant.house.apartment?.name || 'N/A'}</span>
-                      </div>
-                    ) : (
-                      <span className="not-assigned">Not Assigned</span>
-                    )}
-                  </td>
-                  <td>
-                    <div className="lease-cell">
-                      <div>{tenant.leaseStartDate ? new Date(tenant.leaseStartDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}</div>
-                      <div className="lease-end">{tenant.leaseEndDate ? new Date(tenant.leaseEndDate).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'N/A'}</div>
-                    </div>
-                  </td>
-                  <td>
-                    <span className={`status-badge status-${tenant.status}`}>
-                      {tenant.status}
-                    </span>
-                  </td>
-                  <td onClick={(e) => e.stopPropagation()}>
-                    <div className="table-actions">
-                      <button className="btn-view-small" onClick={() => navigate(`/tenants/${tenant._id}`)} title="View details">
-                        View
-                      </button>
-                      <button className="btn-edit-small" onClick={() => handleEdit(tenant)} title="Edit tenant">
-                        Edit
-                      </button>
-                      <button className="btn-delete-small" onClick={() => handleDelete(tenant._id)} title="Delete tenant">
-                        Delete
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
-        </div>
-      ) : (
-        <div className="grid-container">
-          {filteredTenants.map((tenant) => (
-            <div key={tenant._id} className="tenant-card" onClick={() => navigate(`/tenants/${tenant._id}`)}>
-              <div className="card-header">
-                <div className="card-avatar">
-                  {(tenant.firstName || '?')[0]}{(tenant.lastName || '?')[0]}
-                </div>
-                <span className={`status-badge status-${tenant.status}`}>
-                  {tenant.status}
-                </span>
-              </div>
-              <div className="card-body">
-                <h3 className="card-name">{tenant.firstName} {tenant.lastName}</h3>
-                <div className="card-info">
-                  <div className="info-row">
-                    <span className="info-label">Email</span>
-                    <span className="info-value">{tenant.email}</span>
-                  </div>
-                  <div className="info-row">
-                    <span className="info-label">Phone</span>
-                    <span className="info-value">{tenant.phone}</span>
-                  </div>
-                  {tenant.house ? (
-                    <div className="info-row">
-                      <span className="info-label">House</span>
-                      <span className="info-value">{tenant.house.houseNumber} - {tenant.house.apartment?.name || 'N/A'}</span>
-                    </div>
-                  ) : (
-                    <div className="info-row">
-                      <span className="not-assigned">Not Assigned</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-              <div className="card-actions" onClick={(e) => e.stopPropagation()}>
-                <button className="btn-view-small" onClick={() => navigate(`/tenants/${tenant._id}`)}>
-                  View
-                </button>
-                <button className="btn-edit-small" onClick={() => handleEdit(tenant)}>
-                  Edit
-                </button>
-                <button className="btn-delete-small" onClick={() => handleDelete(tenant._id)}>
-                  Delete
-                </button>
-              </div>
-            </div>
-          ))}
         </div>
       )}
 

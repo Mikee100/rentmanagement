@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { reportsAPI, tenantsAPI, apartmentsAPI } from '../services/api';
 import { useToast } from '../components/Toast';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -6,9 +6,57 @@ import { exportToPDF, exportToExcel, exportToCSV } from '../utils/export';
 import './Reports.css';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import { Bar, Doughnut } from 'react-chartjs-2';
+import {
+  Chart as ChartJS,
+  ArcElement,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend
+} from 'chart.js';
 
-const Reports = () => {
-  const [activeTab, setActiveTab] = useState('income');
+ChartJS.register(
+  ArcElement,
+  CategoryScale,
+  LinearScale,
+  BarElement,
+  Title,
+  Tooltip,
+  Legend
+);
+
+const REPORT_META = {
+  income: {
+    title: 'Income Statement',
+    caption: 'Revenue vs expenses'
+  },
+  outstanding: {
+    title: 'Outstanding Balances',
+    caption: 'Who still owes what'
+  },
+  revenue: {
+    title: 'Revenue by Apartment',
+    caption: 'Building-level performance'
+  },
+  ledger: {
+    title: 'Tenant Ledger',
+    caption: 'Payment history by tenant'
+  },
+  'apartment-units': {
+    title: 'Monthly Houses',
+    caption: 'Unit-level collections'
+  },
+  'apartments-monthly': {
+    title: 'Monthly Apartments',
+    caption: 'Revenue + issues by building'
+  }
+};
+
+const Reports = ({ forcedTab = null, standalone = false }) => {
+  const [activeTab, setActiveTab] = useState(forcedTab || 'income');
   const [loading, setLoading] = useState(false);
   const [tenants, setTenants] = useState([]);
   const [apartments, setApartments] = useState([]);
@@ -22,6 +70,7 @@ const Reports = () => {
   const [tenantLedger, setTenantLedger] = useState(null);
   const [outstandingBalances, setOutstandingBalances] = useState(null);
   const [revenueByApartment, setRevenueByApartment] = useState(null);
+  const [revenueByApartmentMonthly, setRevenueByApartmentMonthly] = useState(null);
   const [apartmentMonthlyUnits, setApartmentMonthlyUnits] = useState(null);
   const [apartmentsMonthly, setApartmentsMonthly] = useState(null);
   const [selectedMonth, setSelectedMonth] = useState(String(new Date().getMonth() + 1).padStart(2, '0'));
@@ -35,20 +84,28 @@ const Reports = () => {
   }, []);
 
   useEffect(() => {
+    if (forcedTab && REPORT_META[forcedTab] && forcedTab !== activeTab) {
+      setActiveTab(forcedTab);
+    }
+  }, [forcedTab]);
+
+  useEffect(() => {
     if (activeTab === 'income') {
-      fetchIncomeStatement();
+      fetchIncomeDashboard();
     } else if (activeTab === 'outstanding') {
       fetchOutstandingBalances();
     } else if (activeTab === 'revenue') {
-      // Revenue view needs both revenue and outstanding snapshots
+      // Revenue view needs revenue, outstanding, and monthly series
       fetchRevenueByApartment();
       fetchOutstandingBalances();
+      fetchRevenueByApartmentMonthly();
     } else if (activeTab === 'ledger' && selectedTenant) {
       fetchTenantLedger();
     } else if (activeTab === 'apartment-units' && selectedApartment && selectedMonth && selectedYear) {
       fetchApartmentMonthlyUnits();
     } else if (activeTab === 'apartments-monthly' && selectedMonth && selectedYear) {
       fetchApartmentsMonthly();
+      fetchRevenueByApartmentMonthly();
     }
   }, [activeTab, startDate, endDate, selectedTenant, selectedApartment, selectedMonth, selectedYear]);
 
@@ -83,6 +140,33 @@ const Reports = () => {
     } catch (error) {
       console.error('Error fetching income statement:', error);
       toast.error('Failed to fetch income statement');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchIncomeDashboard = async () => {
+    try {
+      setLoading(true);
+      const params = {};
+      if (startDate) params.startDate = startDate;
+      if (endDate) params.endDate = endDate;
+      if (selectedApartment) params.apartmentId = selectedApartment;
+
+      const [incomeResponse, revenueResponse, outstandingResponse, monthlyResponse] = await Promise.all([
+        reportsAPI.getIncomeStatement(params),
+        reportsAPI.getRevenueByApartment(params),
+        reportsAPI.getOutstandingBalances(),
+        reportsAPI.getRevenueByApartmentMonthly(params)
+      ]);
+
+      setIncomeStatement(incomeResponse.data);
+      setRevenueByApartment(revenueResponse.data);
+      setOutstandingBalances(outstandingResponse.data);
+      setRevenueByApartmentMonthly(monthlyResponse.data);
+    } catch (error) {
+      console.error('Error fetching income dashboard data:', error);
+      toast.error('Failed to fetch income analytics');
     } finally {
       setLoading(false);
     }
@@ -137,6 +221,19 @@ const Reports = () => {
     }
   };
 
+  const fetchRevenueByApartmentMonthly = async () => {
+    try {
+      const params = {};
+      if (startDate) params.startDate = startDate;
+      if (endDate) params.endDate = endDate;
+      
+      const response = await reportsAPI.getRevenueByApartmentMonthly(params);
+      setRevenueByApartmentMonthly(response.data);
+    } catch (error) {
+      console.error('Error fetching monthly revenue series:', error);
+    }
+  };
+
   const fetchApartmentMonthlyUnits = async () => {
     if (!selectedApartment) return;
 
@@ -176,6 +273,9 @@ const Reports = () => {
     return `KSh ${(amount || 0).toLocaleString()}`;
   };
 
+  const reportTitle = REPORT_META[activeTab]?.title || 'Reports & Analytics';
+  const reportCaption = REPORT_META[activeTab]?.caption || 'Analytics report';
+
   const buildApartmentBalanceMap = () => {
     const map = {};
     if (!outstandingBalances || !outstandingBalances.balances) return map;
@@ -195,6 +295,450 @@ const Reports = () => {
 
     return map;
   };
+
+  const incomeAnalytics = useMemo(() => {
+    const apartmentsData = revenueByApartment?.apartments || [];
+    const sorted = [...apartmentsData].sort((a, b) => (b.total || 0) - (a.total || 0));
+    const topForBar = sorted.slice(0, 10);
+
+    const barData = {
+      labels: topForBar.map((a) => a.apartmentName),
+      datasets: [
+        {
+          label: 'Total Collected (KSh)',
+          data: topForBar.map((a) => a.total || 0),
+          backgroundColor: 'rgba(37, 99, 235, 0.80)',
+          borderColor: 'rgb(37, 99, 235)',
+          borderWidth: 1
+        }
+      ]
+    };
+
+    const topForDonut = sorted.slice(0, 5);
+    const othersTotal = sorted.slice(5).reduce((sum, a) => sum + (a.total || 0), 0);
+    const donutLabels = topForDonut.map((a) => a.apartmentName);
+    const donutValues = topForDonut.map((a) => a.total || 0);
+    if (othersTotal > 0) {
+      donutLabels.push('Others');
+      donutValues.push(othersTotal);
+    }
+
+    const donutData = {
+      labels: donutLabels,
+      datasets: [
+        {
+          data: donutValues,
+          backgroundColor: [
+            'rgba(37, 99, 235, 0.85)',
+            'rgba(22, 163, 74, 0.85)',
+            'rgba(245, 158, 11, 0.85)',
+            'rgba(14, 116, 144, 0.85)',
+            'rgba(219, 39, 119, 0.85)',
+            'rgba(100, 116, 139, 0.85)'
+          ],
+          borderColor: '#ffffff',
+          borderWidth: 2
+        }
+      ]
+    };
+
+    const totalCollected = revenueByApartment?.totalRevenue || 0;
+    const totalOutstanding = outstandingBalances?.totalOutstanding || 0;
+    const netPosition = totalCollected - totalOutstanding;
+
+    return {
+      barData,
+      donutData,
+      hasChartData: sorted.length > 0,
+      totalCollected,
+      totalOutstanding,
+      netPosition,
+      apartmentCount: apartmentsData.length
+    };
+  }, [revenueByApartment, outstandingBalances]);
+
+  const incomeBarOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      title: {
+        display: true,
+        text: 'Collections by Apartment (All-Time)'
+      },
+      tooltip: {
+        callbacks: {
+          label: (ctx) => `KSh ${(ctx.parsed.y || 0).toLocaleString()}`
+        }
+      }
+    },
+    scales: {
+      y: {
+        beginAtZero: true,
+        ticks: {
+          callback: (value) => `KSh ${Number(value).toLocaleString()}`
+        },
+        grid: {
+          color: 'rgba(0,0,0,0.05)'
+        }
+      },
+      x: {
+        grid: { display: false }
+      }
+    }
+  };
+
+  const incomeDonutOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        position: 'bottom'
+      },
+      title: {
+        display: true,
+        text: 'Collection Share by Apartment'
+      },
+      tooltip: {
+        callbacks: {
+          label: (ctx) => `${ctx.label}: KSh ${(ctx.parsed || 0).toLocaleString()}`
+        }
+      }
+    }
+  };
+
+  const monthlyPerformanceChart = useMemo(() => {
+    const labels = revenueByApartmentMonthly?.labels || [];
+    const series = revenueByApartmentMonthly?.series || [];
+
+    const palette = [
+      '#2563eb', '#16a34a', '#f59e0b', '#0891b2', '#db2777',
+      '#7c3aed', '#ea580c', '#334155', '#0d9488', '#dc2626'
+    ];
+
+    const topSeries = [...series]
+      .map((s) => ({
+        ...s,
+        total: (s.values || []).reduce((sum, v) => sum + v, 0)
+      }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 8);
+
+    return {
+      hasData: labels.length > 0 && topSeries.length > 0,
+      data: {
+        labels,
+        datasets: topSeries.map((s, idx) => ({
+          label: s.apartmentName,
+          data: s.values || [],
+          backgroundColor: `${palette[idx % palette.length]}bb`,
+          borderColor: palette[idx % palette.length],
+          borderWidth: 1
+        }))
+      }
+    };
+  }, [revenueByApartmentMonthly]);
+
+  const monthlyPerformanceOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        position: 'bottom'
+      },
+      title: {
+        display: true,
+        text: 'Monthly Performance by Apartment (Allocated Month)'
+      },
+      tooltip: {
+        callbacks: {
+          label: (ctx) => `${ctx.dataset.label}: KSh ${(ctx.parsed.y || 0).toLocaleString()}`
+        }
+      }
+    },
+    scales: {
+      y: {
+        beginAtZero: true,
+        ticks: {
+          callback: (value) => `KSh ${Number(value).toLocaleString()}`
+        },
+        grid: {
+          color: 'rgba(0,0,0,0.06)'
+        }
+      },
+      x: {
+        grid: {
+          display: false
+        }
+      }
+    }
+  };
+
+  const monthlyApartmentsComparisonChart = useMemo(() => {
+    const list = apartmentsMonthly?.apartments || [];
+    if (!list.length) return { hasData: false };
+
+    const labels = list.map((a) => a.apartmentName);
+    const expected = list.map((a) => a.totalExpected || 0);
+    const paid = list.map((a) => a.totalPaid || 0);
+    const outstanding = list.map((a) => a.outstanding || 0);
+
+    return {
+      hasData: true,
+      data: {
+        labels,
+        datasets: [
+          {
+            label: 'Expected Rent',
+            data: expected,
+            backgroundColor: 'rgba(99, 102, 241, 0.85)',
+            borderColor: 'rgb(99, 102, 241)',
+            borderWidth: 1,
+            borderRadius: 6
+          },
+          {
+            label: 'Total Collected',
+            data: paid,
+            backgroundColor: 'rgba(34, 197, 94, 0.85)',
+            borderColor: 'rgb(34, 197, 94)',
+            borderWidth: 1,
+            borderRadius: 6
+          },
+          {
+            label: 'Outstanding Deficit',
+            data: outstanding,
+            backgroundColor: 'rgba(239, 68, 68, 0.85)',
+            borderColor: 'rgb(239, 68, 68)',
+            borderWidth: 1,
+            borderRadius: 6
+          }
+        ]
+      }
+    };
+  }, [apartmentsMonthly]);
+
+  const monthlyApartmentsOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { position: 'top' },
+      title: {
+        display: true,
+        text: `Apartment Performance Comparison (${selectedMonth}/${selectedYear})`,
+        font: { size: 14, weight: 'bold' }
+      },
+      tooltip: {
+        callbacks: {
+          label: (ctx) => `${ctx.dataset.label}: KSh ${(ctx.parsed.y || 0).toLocaleString()}`
+        }
+      }
+    },
+    scales: {
+      y: {
+        beginAtZero: true,
+        ticks: { callback: (v) => `KSh ${Number(v).toLocaleString()}` },
+        grid: { color: 'rgba(0,0,0,0.05)' }
+      },
+      x: { grid: { display: false } }
+    }
+  };
+
+  const multiMonthBarChart = useMemo(() => {
+    const labels = revenueByApartmentMonthly?.labels || [];
+    const series = revenueByApartmentMonthly?.series || [];
+
+    if (!labels.length || !series.length) return { hasData: false };
+
+    const palette = [
+      'rgba(37, 99, 235, 0.85)',
+      'rgba(22, 163, 74, 0.85)',
+      'rgba(245, 158, 11, 0.85)',
+      'rgba(14, 116, 144, 0.85)',
+      'rgba(219, 39, 119, 0.85)',
+      'rgba(124, 58, 237, 0.85)',
+      'rgba(234, 88, 12, 0.85)',
+      'rgba(51, 65, 85, 0.85)'
+    ];
+    const borderPalette = [
+      '#2563eb', '#16a34a', '#f59e0b', '#0891b2', '#db2777',
+      '#7c3aed', '#ea580c', '#334155'
+    ];
+
+    const topSeries = [...series]
+      .map((s) => ({
+        ...s,
+        total: (s.values || []).reduce((sum, v) => sum + v, 0)
+      }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 8);
+
+    return {
+      hasData: true,
+      data: {
+        labels,
+        datasets: topSeries.map((s, idx) => ({
+          label: s.apartmentName,
+          data: s.values || [],
+          backgroundColor: palette[idx % palette.length],
+          borderColor: borderPalette[idx % borderPalette.length],
+          borderWidth: 1,
+          borderRadius: 4
+        }))
+      }
+    };
+  }, [revenueByApartmentMonthly]);
+
+  const multiMonthBarOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { position: 'top' },
+      title: {
+        display: true,
+        text: 'Apartment Revenue Comparison Across Months',
+        font: { size: 14, weight: 'bold' }
+      },
+      tooltip: {
+        callbacks: {
+          label: (ctx) => `${ctx.dataset.label}: KSh ${(ctx.parsed.y || 0).toLocaleString()}`
+        }
+      }
+    },
+    scales: {
+      y: {
+        beginAtZero: true,
+        ticks: { callback: (v) => `KSh ${Number(v).toLocaleString()}` },
+        grid: { color: 'rgba(0,0,0,0.05)' }
+      },
+      x: { grid: { display: false } }
+    }
+  };
+
+  const unitPerformanceChart = useMemo(() => {
+    const units = apartmentMonthlyUnits?.units || [];
+    if (!units.length) return { hasData: false };
+
+    const labels = units.map((u) => `House ${u.houseNumber}`);
+    const expected = units.map((u) => u.totalExpected || 0);
+    const paid = units.map((u) => u.totalPaid || 0);
+    const due = units.map((u) => u.totalDeficit || 0);
+
+    return {
+      hasData: true,
+      data: {
+        labels,
+        datasets: [
+          {
+            label: 'Expected Rent',
+            data: expected,
+            backgroundColor: 'rgba(99, 102, 241, 0.75)',
+            borderColor: 'rgb(99, 102, 241)',
+            borderWidth: 1,
+            borderRadius: 4
+          },
+          {
+            label: 'Rent Paid',
+            data: paid,
+            backgroundColor: 'rgba(34, 197, 94, 0.85)',
+            borderColor: 'rgb(34, 197, 94)',
+            borderWidth: 1,
+            borderRadius: 4
+          },
+          {
+            label: 'Outstanding Due',
+            data: due,
+            backgroundColor: 'rgba(239, 68, 68, 0.85)',
+            borderColor: 'rgb(239, 68, 68)',
+            borderWidth: 1,
+            borderRadius: 4
+          }
+        ]
+      }
+    };
+  }, [apartmentMonthlyUnits]);
+
+  const unitPerformanceOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { position: 'top' },
+      title: {
+        display: true,
+        text: `Unit Collections Breakdown (${apartmentMonthlyUnits?.apartment?.name || ''} - ${selectedMonth}/${selectedYear})`,
+        font: { size: 14, weight: 'bold' }
+      },
+      tooltip: {
+        callbacks: {
+          label: (ctx) => `${ctx.dataset.label}: KSh ${(ctx.parsed.y || 0).toLocaleString()}`
+        }
+      }
+    },
+    scales: {
+      y: {
+        beginAtZero: true,
+        ticks: { callback: (v) => `KSh ${Number(v).toLocaleString()}` },
+        grid: { color: 'rgba(0,0,0,0.05)' }
+      },
+      x: { grid: { display: false } }
+    }
+  };
+
+  const outstandingByApartmentChart = useMemo(() => {
+    const list = outstandingBalances?.byApartment || [];
+    if (!list.length) return { hasData: false };
+
+    const labels = list.map((a) => a.apartmentName);
+    const data = list.map((a) => a.totalOutstanding || 0);
+
+    return {
+      hasData: true,
+      data: {
+        labels,
+        datasets: [
+          {
+            label: 'Total Outstanding Balance (KSh)',
+            data,
+            backgroundColor: 'rgba(239, 68, 68, 0.80)',
+            borderColor: 'rgb(239, 68, 68)',
+            borderWidth: 1,
+            borderRadius: 6
+          }
+        ]
+      }
+    };
+  }, [outstandingBalances]);
+
+  const outstandingByApartmentOptions = {
+    indexAxis: 'y',
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: false },
+      title: {
+        display: true,
+        text: 'Outstanding Debt by Apartment',
+        font: { size: 14, weight: 'bold' }
+      },
+      tooltip: {
+        callbacks: {
+          label: (ctx) => `Outstanding: KSh ${(ctx.parsed.x || 0).toLocaleString()}`
+        }
+      }
+    },
+    scales: {
+      x: {
+        beginAtZero: true,
+        ticks: { callback: (v) => `KSh ${Number(v).toLocaleString()}` },
+        grid: { color: 'rgba(0,0,0,0.05)' }
+      },
+      y: { grid: { display: false } }
+    }
+  };
+
+  // Chart refs for income statement PDF export
+  const incomeBarRef = useRef(null);
+  const incomeDonutRef = useRef(null);
+  const incomeMonthlyRef = useRef(null);
 
   const exportApartmentUnitsPDF = () => {
     if (!apartmentMonthlyUnits) return;
@@ -423,6 +967,300 @@ const Reports = () => {
     );
   };
 
+  const exportIncomeStatementPDF = () => {
+    if (!incomeStatement) return;
+
+    const doc = new jsPDF();
+    const pageWidth = doc.internal.pageSize.getWidth();
+    const pageHeight = doc.internal.pageSize.getHeight();
+    const marginLeft = 14;
+    const contentWidth = pageWidth - marginLeft * 2;
+
+    // ── Header band ────────────────────────────────────────────────
+    doc.setFillColor(79, 70, 229);
+    doc.rect(0, 0, pageWidth, 26, 'F');
+    doc.setTextColor(255);
+    doc.setFontSize(11);
+    doc.text('Rent Management System', marginLeft, 10);
+    doc.setFontSize(17);
+    doc.text('Income Statement', marginLeft, 20);
+
+    // Period / date
+    const periodText =
+      incomeStatement.period?.startDate && incomeStatement.period?.endDate
+        ? `${new Date(incomeStatement.period.startDate).toLocaleDateString()} – ${new Date(incomeStatement.period.endDate).toLocaleDateString()}`
+        : 'All Time';
+
+    doc.setFontSize(9);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Period: ${periodText}`, marginLeft, 34);
+    doc.text(`Generated: ${new Date().toLocaleString()}`, marginLeft, 39);
+
+    // ── Summary KPI boxes ────────────────────────────────────────────
+    const kpiY = 46;
+    const kpiW = (contentWidth - 8) / 3;
+    const kpiH = 18;
+    const kpis = [
+      { label: 'Total Revenue', value: `KSh ${(incomeStatement.revenue.total || 0).toLocaleString()}`, color: [22, 163, 74] },
+      { label: 'Total Expenses', value: `KSh ${(incomeStatement.expenses.total || 0).toLocaleString()}`, color: [239, 68, 68] },
+      { label: 'Net Income', value: `KSh ${(incomeStatement.netIncome || 0).toLocaleString()}`, color: incomeStatement.netIncome >= 0 ? [37, 99, 235] : [239, 68, 68] }
+    ];
+
+    kpis.forEach((kpi, i) => {
+      const x = marginLeft + i * (kpiW + 4);
+      doc.setFillColor(...kpi.color.map(c => Math.round(c * 0.15 + 240)));
+      doc.roundedRect(x, kpiY, kpiW, kpiH, 2, 2, 'F');
+      doc.setDrawColor(...kpi.color);
+      doc.roundedRect(x, kpiY, kpiW, kpiH, 2, 2, 'S');
+      doc.setFontSize(7);
+      doc.setTextColor(100, 116, 139);
+      doc.text(kpi.label, x + 3, kpiY + 5);
+      doc.setFontSize(10);
+      doc.setTextColor(...kpi.color);
+      doc.setFont(undefined, 'bold');
+      doc.text(kpi.value, x + 3, kpiY + 13);
+      doc.setFont(undefined, 'normal');
+    });
+
+    // ── Revenue & Expenses Table ─────────────────────────────────────
+    const tableStartY = kpiY + kpiH + 8;
+    const revenueRows = [['Rent Revenue', `KSh ${(incomeStatement.revenue.rent || 0).toLocaleString()}`]];
+    const expenseRows = Object.entries(incomeStatement.expenses.byCategory || {}).map(([cat, amt]) => [
+      cat,
+      `KSh ${(amt || 0).toLocaleString()}`
+    ]);
+    if (expenseRows.length === 0) {
+      expenseRows.push(['Total Expenses', `KSh ${(incomeStatement.expenses.total || 0).toLocaleString()}`]);
+    }
+
+    autoTable(doc, {
+      startY: tableStartY,
+      head: [['Revenue', 'Amount (KSh)']],
+      body: [
+        ...revenueRows,
+        [{ content: 'TOTAL REVENUE', styles: { fontStyle: 'bold' } }, { content: `KSh ${(incomeStatement.revenue.total || 0).toLocaleString()}`, styles: { fontStyle: 'bold', halign: 'right' } }]
+      ],
+      theme: 'grid',
+      headStyles: { fillColor: [22, 163, 74], textColor: 255, fontStyle: 'bold' },
+      styles: { fontSize: 9, cellPadding: 3, textColor: [31, 41, 55] },
+      columnStyles: { 0: { cellWidth: 80 }, 1: { halign: 'right' } },
+      tableWidth: contentWidth * 0.5
+    });
+
+    const revenueTableEnd = doc.lastAutoTable?.finalY || tableStartY + 30;
+
+    autoTable(doc, {
+      startY: tableStartY,
+      margin: { left: marginLeft + contentWidth * 0.5 + 4 },
+      head: [['Expenses', 'Amount (KSh)']],
+      body: [
+        ...expenseRows,
+        [{ content: 'TOTAL EXPENSES', styles: { fontStyle: 'bold' } }, { content: `KSh ${(incomeStatement.expenses.total || 0).toLocaleString()}`, styles: { fontStyle: 'bold', halign: 'right' } }]
+      ],
+      theme: 'grid',
+      headStyles: { fillColor: [239, 68, 68], textColor: 255, fontStyle: 'bold' },
+      styles: { fontSize: 9, cellPadding: 3, textColor: [31, 41, 55] },
+      columnStyles: { 0: { cellWidth: 80 }, 1: { halign: 'right' } },
+      tableWidth: contentWidth * 0.5
+    });
+
+    const expenseTableEnd = doc.lastAutoTable?.finalY || tableStartY + 30;
+    let currentY = Math.max(revenueTableEnd, expenseTableEnd) + 8;
+
+    // Net income highlight bar
+    const netColor = (incomeStatement.netIncome || 0) >= 0 ? [22, 163, 74] : [239, 68, 68];
+    doc.setFillColor(...netColor.map(c => Math.round(c * 0.12 + 235)));
+    doc.rect(marginLeft, currentY, contentWidth, 10, 'F');
+    doc.setDrawColor(...netColor);
+    doc.rect(marginLeft, currentY, contentWidth, 10, 'S');
+    doc.setFontSize(10);
+    doc.setTextColor(...netColor);
+    doc.setFont(undefined, 'bold');
+    doc.text('NET INCOME', marginLeft + 3, currentY + 7);
+    const netValText = `KSh ${(incomeStatement.netIncome || 0).toLocaleString()}`;
+    const netValWidth = doc.getTextWidth(netValText);
+    doc.text(netValText, marginLeft + contentWidth - netValWidth - 3, currentY + 7);
+    doc.setFont(undefined, 'normal');
+    currentY += 18;
+
+    // ── Payment & Expense count ──────────────────────────────────────
+    doc.setFontSize(8);
+    doc.setTextColor(100, 116, 139);
+    doc.text(`Total Payment Transactions: ${incomeStatement.paymentCount || 0}`, marginLeft, currentY);
+    doc.text(`Total Expense Records: ${incomeStatement.expenseCount || 0}`, marginLeft + 80, currentY);
+    currentY += 10;
+
+    // ── Portfolio summary metrics ────────────────────────────────────
+    if (incomeAnalytics) {
+      autoTable(doc, {
+        startY: currentY,
+        head: [['Portfolio Metric', 'Value']],
+        body: [
+          ['Total Collected (All-Time)', `KSh ${(incomeAnalytics.totalCollected || 0).toLocaleString()}`],
+          ['Total Outstanding (All-Time)', `KSh ${(incomeAnalytics.totalOutstanding || 0).toLocaleString()}`],
+          ['Net Position', `KSh ${(incomeAnalytics.netPosition || 0).toLocaleString()}`],
+          ['Apartments Covered', String(incomeAnalytics.apartmentCount || 0)]
+        ],
+        theme: 'grid',
+        headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: 'bold' },
+        styles: { fontSize: 9, cellPadding: 3, textColor: [31, 41, 55] },
+        columnStyles: { 0: { fontStyle: 'bold', cellWidth: 80 }, 1: { halign: 'right' } },
+        tableWidth: contentWidth * 0.7
+      });
+      currentY = (doc.lastAutoTable?.finalY || currentY) + 10;
+    }
+
+    // ── Apartment Collections Bar Chart ──────────────────────────────
+    if (incomeBarRef.current && incomeAnalytics?.hasChartData) {
+      try {
+        const barImg = incomeBarRef.current.toBase64Image('image/png', 1.0);
+        const remainingSpace = pageHeight - currentY - 20;
+        const chartH = Math.min(70, remainingSpace - 10);
+        if (chartH > 30) {
+          doc.setFontSize(10);
+          doc.setTextColor(30, 64, 175);
+          doc.setFont(undefined, 'bold');
+          doc.text('Collections by Apartment (All-Time)', marginLeft, currentY);
+          doc.setFont(undefined, 'normal');
+          currentY += 4;
+          doc.addImage(barImg, 'PNG', marginLeft, currentY, contentWidth * 0.65, chartH);
+          currentY += chartH + 8;
+        } else {
+          doc.addPage();
+          currentY = 16;
+          doc.setFontSize(10);
+          doc.setTextColor(30, 64, 175);
+          doc.setFont(undefined, 'bold');
+          doc.text('Collections by Apartment (All-Time)', marginLeft, currentY);
+          doc.setFont(undefined, 'normal');
+          currentY += 4;
+          doc.addImage(barImg, 'PNG', marginLeft, currentY, contentWidth * 0.65, 70);
+          currentY += 78;
+        }
+      } catch (e) {
+        console.warn('Could not export bar chart image:', e);
+      }
+    }
+
+    // ── Revenue Share Doughnut Chart ─────────────────────────────────
+    if (incomeDonutRef.current && incomeAnalytics?.hasChartData) {
+      try {
+        const donutImg = incomeDonutRef.current.toBase64Image('image/png', 1.0);
+        const remainingSpace = pageHeight - currentY - 20;
+        const chartH = Math.min(65, remainingSpace - 10);
+        if (chartH > 30) {
+          doc.setFontSize(10);
+          doc.setTextColor(30, 64, 175);
+          doc.setFont(undefined, 'bold');
+          doc.text('Revenue Share by Apartment', marginLeft, currentY);
+          doc.setFont(undefined, 'normal');
+          currentY += 4;
+          doc.addImage(donutImg, 'PNG', marginLeft + contentWidth * 0.3, currentY - chartH - 4, contentWidth * 0.4, chartH);
+          // Place donut next to bar if on same page, otherwise just proceed
+        } else {
+          doc.addPage();
+          currentY = 16;
+          doc.setFontSize(10);
+          doc.setTextColor(30, 64, 175);
+          doc.setFont(undefined, 'bold');
+          doc.text('Revenue Share by Apartment', marginLeft, currentY);
+          doc.setFont(undefined, 'normal');
+          currentY += 4;
+          doc.addImage(donutImg, 'PNG', marginLeft, currentY, contentWidth * 0.6, 65);
+          currentY += 73;
+        }
+      } catch (e) {
+        console.warn('Could not export donut chart image:', e);
+      }
+    }
+
+    // ── Monthly Performance Bar Chart ────────────────────────────────
+    if (incomeMonthlyRef.current && monthlyPerformanceChart?.hasData) {
+      try {
+        const monthlyImg = incomeMonthlyRef.current.toBase64Image('image/png', 1.0);
+        const remainingSpace = pageHeight - currentY - 20;
+        const chartH = Math.min(72, remainingSpace - 10);
+        if (chartH > 30) {
+          doc.setFontSize(10);
+          doc.setTextColor(30, 64, 175);
+          doc.setFont(undefined, 'bold');
+          doc.text('Monthly Performance by Apartment', marginLeft, currentY);
+          doc.setFont(undefined, 'normal');
+          currentY += 4;
+          doc.addImage(monthlyImg, 'PNG', marginLeft, currentY, contentWidth, chartH);
+          currentY += chartH + 8;
+        } else {
+          doc.addPage();
+          currentY = 16;
+          doc.setFontSize(10);
+          doc.setTextColor(30, 64, 175);
+          doc.setFont(undefined, 'bold');
+          doc.text('Monthly Performance by Apartment', marginLeft, currentY);
+          doc.setFont(undefined, 'normal');
+          currentY += 4;
+          doc.addImage(monthlyImg, 'PNG', marginLeft, currentY, contentWidth, 72);
+          currentY += 80;
+        }
+      } catch (e) {
+        console.warn('Could not export monthly chart image:', e);
+      }
+    }
+
+    // ── Apartment-level table ────────────────────────────────────────
+    if (revenueByApartment?.apartments?.length) {
+      if (pageHeight - currentY < 50) {
+        doc.addPage();
+        currentY = 16;
+      }
+      doc.setFontSize(10);
+      doc.setTextColor(30, 64, 175);
+      doc.setFont(undefined, 'bold');
+      doc.text('Revenue Breakdown by Apartment', marginLeft, currentY);
+      doc.setFont(undefined, 'normal');
+      currentY += 4;
+
+      autoTable(doc, {
+        startY: currentY,
+        head: [['Apartment', 'Revenue Collected', 'Payments', 'Tenants']],
+        body: revenueByApartment.apartments.map(a => [
+          a.apartmentName,
+          `KSh ${(a.total || a.revenue || 0).toLocaleString()}`,
+          String(a.paymentCount || 0),
+          String(a.tenantCount || 0)
+        ]),
+        headStyles: { fillColor: [79, 70, 229], textColor: 255, fontStyle: 'bold' },
+        styles: { fontSize: 8.5, cellPadding: 2.5, textColor: [31, 41, 55] },
+        alternateRowStyles: { fillColor: [248, 250, 252] },
+        columnStyles: {
+          0: { cellWidth: 60 },
+          1: { halign: 'right' },
+          2: { halign: 'right', cellWidth: 22 },
+          3: { halign: 'right', cellWidth: 20 }
+        }
+      });
+      currentY = (doc.lastAutoTable?.finalY || currentY) + 10;
+    }
+
+    // ── Footer ───────────────────────────────────────────────────────
+    const totalPages = doc.internal.getNumberOfPages();
+    for (let i = 1; i <= totalPages; i++) {
+      doc.setPage(i);
+      doc.setFontSize(8);
+      doc.setTextColor(148, 163, 184);
+      const footerY = pageHeight - 10;
+      doc.text(
+        `Generated by Rent Management System • ${new Date().toLocaleString()}`,
+        marginLeft,
+        footerY
+      );
+      const pageLabel = `Page ${i} of ${totalPages}`;
+      doc.text(pageLabel, pageWidth - marginLeft - doc.getTextWidth(pageLabel), footerY);
+    }
+
+    const dateStr = new Date().toISOString().slice(0, 10);
+    doc.save(`income-statement-${dateStr}.pdf`);
+  };
+
   const exportApartmentsMonthlyPDF = () => {
     if (!apartmentsMonthly) return;
 
@@ -458,7 +1296,6 @@ const Reports = () => {
       (apt.outstanding || 0).toLocaleString(),
       (apt.overpaid || 0).toLocaleString(),
       (apt.advanceReceived || 0).toLocaleString(),
-      (apt.lateFees || 0).toLocaleString(),
       (apt.totalCollected || 0).toLocaleString(),
       String(apt.paymentCount || 0),
       String(apt.issues?.count || 0),
@@ -474,7 +1311,6 @@ const Reports = () => {
       (report.totals.outstanding || 0).toLocaleString(),
       (report.totals.overpaid || 0).toLocaleString(),
       (report.totals.advanceReceived || 0).toLocaleString(),
-      (report.totals.lateFees || 0).toLocaleString(),
       (report.totals.totalCollected || 0).toLocaleString(),
       String(report.totals.paymentCount || 0),
       String(report.totals.issuesCount || 0),
@@ -491,7 +1327,6 @@ const Reports = () => {
         'Outstanding',
         'Overpaid',
         'Advance Received',
-        'Late Fees',
         'Total Collected',
         'Payments',
         'Issues',
@@ -630,7 +1465,6 @@ const Reports = () => {
             return {
               'Apartment': a.apartmentName,
               'Revenue': formatCurrency(a.revenue),
-              'Late Fees': formatCurrency(a.lateFees),
               'Total Collected': formatCurrency(a.total),
               'Outstanding': formatCurrency(b.outstanding),
               'Overpaid': formatCurrency(b.overpaid),
@@ -643,7 +1477,6 @@ const Reports = () => {
           data.push({
             'Apartment': 'TOTAL',
             'Revenue': formatCurrency(revenueByApartment.totalRevenue),
-            'Late Fees': '',
             'Total Collected': formatCurrency(revenueByApartment.totalRevenue),
             'Outstanding': formatCurrency(totalOutstanding),
             'Overpaid': formatCurrency(totalOverpaid),
@@ -662,7 +1495,6 @@ const Reports = () => {
           'Expected': formatCurrency(p.expectedAmount || p.amount),
           'Paid': formatCurrency(p.paidAmount || p.amount),
           'Deficit': formatCurrency(p.deficit || 0),
-          'Late Fee': formatCurrency(p.lateFee || 0),
           'Status': p.status,
           'Method': p.paymentMethod
         }));
@@ -673,7 +1505,6 @@ const Reports = () => {
           'Expected': formatCurrency(tenantLedger.summary.totalExpected),
           'Paid': formatCurrency(tenantLedger.summary.totalPaid),
           'Deficit': formatCurrency(tenantLedger.summary.totalDeficit),
-          'Late Fee': '',
           'Status': '',
           'Method': ''
         });
@@ -719,7 +1550,6 @@ const Reports = () => {
           Advances: formatCurrency(apt.advances || 0),
           'Advance Received': formatCurrency(apt.advanceReceived || 0),
           Revenue: formatCurrency(apt.revenue),
-          'Late Fees': formatCurrency(apt.lateFees),
           'Total Collected': formatCurrency(apt.totalCollected),
           Payments: apt.paymentCount,
           Issues: apt.issues?.count || 0,
@@ -736,7 +1566,6 @@ const Reports = () => {
           Advances: formatCurrency(apartmentsMonthly.totals.advances || 0),
           'Advance Received': formatCurrency(apartmentsMonthly.totals.advanceReceived || 0),
           Revenue: formatCurrency(apartmentsMonthly.totals.revenue),
-          'Late Fees': formatCurrency(apartmentsMonthly.totals.lateFees),
           'Total Collected': formatCurrency(apartmentsMonthly.totals.totalCollected),
           Payments: apartmentsMonthly.totals.paymentCount,
           Issues: apartmentsMonthly.totals.issuesCount,
@@ -753,7 +1582,11 @@ const Reports = () => {
     }
 
     if (format === 'pdf') {
-      // Use a richer, domain-specific PDF for apartment units
+      // Use domain-specific rich PDF exporters
+      if (activeTab === 'income') {
+        exportIncomeStatementPDF();
+        return;
+      }
       if (activeTab === 'apartment-units') {
         exportApartmentUnitsPDF();
         return;
@@ -779,9 +1612,11 @@ const Reports = () => {
     <div className="reports-page">
       <div className="page-header reports-header-hero">
         <div className="reports-header-text">
-          <h1>Reports & Analytics</h1>
+          <h1>{standalone ? reportTitle : 'Reports & Analytics'}</h1>
           <p className="reports-subtitle">
-            Slice your data by time, building, and tenant, then export polished PDFs for stakeholders.
+            {standalone
+              ? `${reportCaption}.`
+              : 'Slice your data by time, building, and tenant, then export polished PDFs for stakeholders.'}
           </p>
         </div>
         <div className="date-filters">
@@ -806,7 +1641,8 @@ const Reports = () => {
         </div>
       </div>
 
-      <div className="reports-layout">
+      <div className={`reports-layout ${standalone ? 'reports-layout-single' : ''}`}>
+        {!standalone && (
         <aside className="reports-sidebar">
           <div className="reports-tabs-vertical">
             <button
@@ -860,6 +1696,7 @@ const Reports = () => {
             </div>
           </div>
         </aside>
+        )}
 
         <section className="reports-main">
           <div className="report-filters">
@@ -1003,10 +1840,6 @@ const Reports = () => {
                     <span>Rent Revenue:</span>
                     <span className="amount">{formatCurrency(incomeStatement.revenue.rent)}</span>
                   </div>
-                  <div className="statement-row">
-                    <span>Late Fees:</span>
-                    <span className="amount">{formatCurrency(incomeStatement.revenue.lateFees)}</span>
-                  </div>
                   <div className="statement-row total">
                     <span>Total Revenue:</span>
                     <span className="amount">{formatCurrency(incomeStatement.revenue.total)}</span>
@@ -1040,6 +1873,51 @@ const Reports = () => {
                   <p>Total Payments: {incomeStatement.paymentCount}</p>
                   <p>Total Expenses: {incomeStatement.expenseCount}</p>
                 </div>
+
+                <div className="income-comparison-grid">
+                  <div className="summary-card compact">
+                    <h3>Total Collected (All-Time)</h3>
+                    <p className="large-amount">{formatCurrency(incomeAnalytics.totalCollected)}</p>
+                  </div>
+                  <div className="summary-card compact">
+                    <h3>Total Outstanding (All-Time)</h3>
+                    <p className="large-amount danger">{formatCurrency(incomeAnalytics.totalOutstanding)}</p>
+                  </div>
+                  <div className="summary-card compact">
+                    <h3>Net Position</h3>
+                    <p className={`large-amount ${incomeAnalytics.netPosition >= 0 ? 'success' : 'danger'}`}>
+                      {formatCurrency(incomeAnalytics.netPosition)}
+                    </p>
+                    <p className="sub-text">Across {incomeAnalytics.apartmentCount} apartment(s)</p>
+                  </div>
+                </div>
+
+                {incomeAnalytics.hasChartData ? (
+                  <div className="income-charts-grid">
+                    <div className="chart-card">
+                      <div className="chart-stage">
+                        <Bar ref={incomeBarRef} data={incomeAnalytics.barData} options={incomeBarOptions} />
+                      </div>
+                    </div>
+                    <div className="chart-card">
+                      <div className="chart-stage donut">
+                        <Doughnut ref={incomeDonutRef} data={incomeAnalytics.donutData} options={incomeDonutOptions} />
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="empty-state">
+                    <p>No apartment comparison data available yet.</p>
+                  </div>
+                )}
+
+                {monthlyPerformanceChart.hasData && (
+                  <div className="chart-card monthly-performance-card">
+                    <div className="chart-stage monthly-performance-stage">
+                      <Bar ref={incomeMonthlyRef} data={monthlyPerformanceChart.data} options={monthlyPerformanceOptions} />
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
@@ -1060,6 +1938,14 @@ const Reports = () => {
                     </div>
                   ))}
                 </div>
+
+                {outstandingByApartmentChart.hasData && (
+                  <div className="chart-card report-chart-section">
+                    <div className="chart-stage">
+                      <Bar data={outstandingByApartmentChart.data} options={outstandingByApartmentOptions} />
+                    </div>
+                  </div>
+                )}
 
                 <div className="balances-table">
                   <table>
@@ -1098,6 +1984,14 @@ const Reports = () => {
                   <p className="large-amount">{formatCurrency(revenueByApartment.totalRevenue)}</p>
                 </div>
 
+                {multiMonthBarChart.hasData && (
+                  <div className="chart-card report-chart-section">
+                    <div className="chart-stage monthly-performance-stage">
+                      <Bar data={multiMonthBarChart.data} options={multiMonthBarOptions} />
+                    </div>
+                  </div>
+                )}
+
                 <div className="revenue-grid">
                   {(() => {
                     const balanceMap = buildApartmentBalanceMap();
@@ -1110,10 +2004,6 @@ const Reports = () => {
                             <div className="revenue-row">
                               <span>Collected Revenue:</span>
                               <span>{formatCurrency(apt.revenue)}</span>
-                            </div>
-                            <div className="revenue-row">
-                              <span>Late Fees:</span>
-                              <span>{formatCurrency(apt.lateFees)}</span>
                             </div>
                             <div className="revenue-row total">
                               <span>Total Collected:</span>
@@ -1187,7 +2077,6 @@ const Reports = () => {
                             <th>Expected</th>
                             <th>Paid</th>
                             <th>Deficit</th>
-                            <th>Late Fee</th>
                             <th>Balance</th>
                             <th>Status</th>
                           </tr>
@@ -1200,7 +2089,6 @@ const Reports = () => {
                               <td>{formatCurrency(payment.expectedAmount || payment.amount)}</td>
                               <td>{formatCurrency(payment.paidAmount || payment.amount)}</td>
                               <td>{formatCurrency(payment.deficit || 0)}</td>
-                              <td>{formatCurrency(payment.lateFee || 0)}</td>
                               <td className={payment.runningBalance > 0 ? 'negative' : 'positive'}>
                                 {formatCurrency(payment.runningBalance)}
                               </td>
@@ -1250,6 +2138,14 @@ const Reports = () => {
                         <p className="medium-amount danger">{formatCurrency(apartmentMonthlyUnits.summary.totalDeficit)}</p>
                       </div>
                     </div>
+
+                    {unitPerformanceChart.hasData && (
+                      <div className="chart-card report-chart-section">
+                        <div className="chart-stage">
+                          <Bar data={unitPerformanceChart.data} options={unitPerformanceOptions} />
+                        </div>
+                      </div>
+                    )}
 
                     <div className="balances-table">
                       <table>
@@ -1359,6 +2255,22 @@ const Reports = () => {
                       </div>
                     </div>
 
+                    {monthlyApartmentsComparisonChart.hasData && (
+                      <div className="chart-card report-chart-section">
+                        <div className="chart-stage">
+                          <Bar data={monthlyApartmentsComparisonChart.data} options={monthlyApartmentsOptions} />
+                        </div>
+                      </div>
+                    )}
+
+                    {multiMonthBarChart.hasData && (
+                      <div className="chart-card report-chart-section" style={{ marginTop: '16px' }}>
+                        <div className="chart-stage monthly-performance-stage">
+                          <Bar data={multiMonthBarChart.data} options={multiMonthBarOptions} />
+                        </div>
+                      </div>
+                    )}
+
                     {Array.isArray(apartmentsMonthly.notes) && apartmentsMonthly.notes.length > 0 && (
                       <div className="statement-section">
                         <h3>Notes</h3>
@@ -1384,7 +2296,6 @@ const Reports = () => {
                             <th>Overpaid</th>
                             <th>Advance Received</th>
                             <th>Revenue</th>
-                            <th>Late Fees</th>
                             <th>Total Collected</th>
                             <th>Payments</th>
                             <th>Issues</th>
@@ -1404,7 +2315,6 @@ const Reports = () => {
                               <td>{formatCurrency(apt.overpaid || 0)}</td>
                               <td>{formatCurrency(apt.advanceReceived || 0)}</td>
                               <td>{formatCurrency(apt.revenue)}</td>
-                              <td>{formatCurrency(apt.lateFees)}</td>
                               <td>{formatCurrency(apt.totalCollected)}</td>
                               <td>{(apt.paymentCount || 0).toLocaleString()}</td>
                               <td>{(apt.issues?.count || 0).toLocaleString()}</td>
@@ -1420,7 +2330,6 @@ const Reports = () => {
                             <td><strong>{formatCurrency(apartmentsMonthly.totals.overpaid || 0)}</strong></td>
                             <td><strong>{formatCurrency(apartmentsMonthly.totals.advanceReceived || 0)}</strong></td>
                             <td><strong>{formatCurrency(apartmentsMonthly.totals.revenue)}</strong></td>
-                            <td><strong>{formatCurrency(apartmentsMonthly.totals.lateFees)}</strong></td>
                             <td><strong>{formatCurrency(apartmentsMonthly.totals.totalCollected)}</strong></td>
                             <td><strong>{(apartmentsMonthly.totals.paymentCount || 0).toLocaleString()}</strong></td>
                             <td><strong>{(apartmentsMonthly.totals.issuesCount || 0).toLocaleString()}</strong></td>

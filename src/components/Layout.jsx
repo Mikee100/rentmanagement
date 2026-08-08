@@ -6,13 +6,9 @@ import {
   Building2, 
   Users, 
   CreditCard, 
-  Wrench, 
-  TrendingUp, 
   ClipboardList, 
-  Library, 
   UserCircle, 
   History, 
-  Settings, 
   LogOut,
   ChevronLeft,
   ChevronRight,
@@ -26,7 +22,8 @@ const Layout = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout, isSuperadmin } = useAuth();
-  const isAdmin = () => user && (user.role === 'admin' || user.role === 'superadmin');
+
+  // Always start collapsed, and keep collapsed on resize unless user expands
   const [isCollapsed, setIsCollapsed] = useState(true);
   const [isMobile, setIsMobile] = useState(window.innerWidth <= 768);
 
@@ -34,7 +31,7 @@ const Layout = ({ children }) => {
     const handleResize = () => {
       const mobile = window.innerWidth <= 768;
       setIsMobile(mobile);
-      setIsCollapsed(true);
+      // Do NOT auto-expand sidebar on resize; keep user's choice
     };
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
@@ -58,23 +55,14 @@ const Layout = ({ children }) => {
         { path: '/apartments', label: 'Apartments', icon: Building2 },
         { path: '/tenants', label: 'Tenants', icon: Users },
         { path: '/payments', label: 'Payments', icon: CreditCard },
-        { path: '/maintenance', label: 'Maintenance', icon: Wrench },
-        { path: '/expenses', label: 'Expenses', icon: TrendingUp },
         { path: '/reports', label: 'Reports', icon: ClipboardList },
       ],
     },
-    ...(isAdmin() ? [{
-      title: 'Integrations',
-      items: [
-        { path: '/equity-bank-test', label: 'Bank Integration', icon: Library }
-      ]
-    }] : []),
     ...(isSuperadmin() ? [{
       title: 'Admin',
       items: [
         { path: '/users', label: 'User Controls', icon: UserCircle },
-        { path: '/activity-logs', label: 'Audit Logs', icon: History },
-        { path: '/paybill-config', label: 'System Setup', icon: Settings }
+        { path: '/activity-logs', label: 'Audit Logs', icon: History }
       ]
     }] : []),
   ];
@@ -111,7 +99,7 @@ const Layout = ({ children }) => {
                 animate={{ opacity: 1 }}
                 className="logo-text"
               >
-                RentElite
+                RentMGT
               </motion.span>
             )}
           </div>

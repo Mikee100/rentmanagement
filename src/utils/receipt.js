@@ -157,22 +157,13 @@ export const generatePaymentReceipt = (payment) => {
     yPos += 8;
   }
 
-  // Late Fee (if any)
-  if (payment.lateFee && payment.lateFee > 0) {
-    doc.setFont('helvetica', 'normal');
-    doc.text('Late Fee:', 25, yPos);
-    doc.setFont('helvetica', 'bold');
-    doc.text(`KSh ${payment.lateFee.toLocaleString()}`, pageWidth - 25, yPos, { align: 'right' });
-    yPos += 8;
-  }
-
   // Total Paid
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(11);
   doc.text('Total Paid:', 25, yPos);
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(12);
-  const totalPaid = paidAmount + (payment.overpayment || 0) + (payment.lateFee || 0);
+  const totalPaid = paidAmount + (payment.overpayment || 0);
   doc.text(`KSh ${totalPaid.toLocaleString()}`, pageWidth - 25, yPos, { align: 'right' });
 
   // Advance Tag
